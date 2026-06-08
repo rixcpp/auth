@@ -1,2 +1,3 @@
-# rix-memory
-Memory management utilities, smart pointers, and RAII helpers.
+# Rix Auth
+
+Ready-to-use authentication package for Vix.cpp applications.
