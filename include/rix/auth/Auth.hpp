@@ -12,8 +12,6 @@
  *
  *  Rix
  *
- *  Main authentication facade for rix/auth.
- *
  */
 
 #ifndef RIXCPP_AUTH_INCLUDE_RIX_AUTH_AUTH_HPP_INCLUDED
@@ -24,9 +22,11 @@
 #include <rix/auth/PasswordHasher.hpp>
 #include <rix/auth/Session.hpp>
 #include <rix/auth/SessionStore.hpp>
+#include <rix/auth/Token.hpp>
 #include <rix/auth/User.hpp>
 #include <rix/auth/UserStore.hpp>
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -34,9 +34,6 @@ namespace rixlib::auth
 {
   /**
    * @brief Request used to register a new user.
-   *
-   * RegisterRequest keeps the public API simple for developers while Auth
-   * handles validation, hashing, user creation, and store interaction.
    */
   struct RegisterRequest
   {
@@ -47,8 +44,6 @@ namespace rixlib::auth
 
     /**
      * @brief Plain-text password.
-     *
-     * This value is only accepted as input. It must never be stored directly.
      */
     std::string password;
   };
@@ -80,32 +75,34 @@ namespace rixlib::auth
     User user;
 
     /**
-     * @brief Created authenticated session.
+     * @brief Created server-side session.
      */
     Session session;
+
+    /**
+     * @brief Short-lived token derived from the authenticated session.
+     */
+    Token token;
   };
 
   /**
-   * @brief Main rix/auth facade.
+   * @brief Main authentication facade.
    *
-   * Auth exposes a simple developer-facing API for common authentication
-   * operations such as register, login, session validation, and logout.
+   * Auth provides the developer-facing API for registration, login,
+   * session authentication, session refresh, and logout.
    *
-   * The complexity stays behind this class:
-   *
-   * - input validation
-   * - password hashing
-   * - session creation
-   * - store access
-   * - error mapping
-   *
-   * The application only provides stores and calls clear methods.
+   * It delegates:
+   * - validation to Vix validation-style checks
+   * - password hashing to PasswordHasher backed by vix::crypto
+   * - persistence to UserStore and SessionStore
+   * - time to Vix time-compatible epoch seconds
+   * - secure ids to vix::crypto random bytes
    */
   class Auth
   {
   public:
     /**
-     * @brief Construct an authentication service.
+     * @brief Construct an auth service with development defaults.
      *
      * @param users User storage backend.
      * @param sessions Session storage backend.
@@ -113,7 +110,7 @@ namespace rixlib::auth
     Auth(UserStore &users, SessionStore &sessions);
 
     /**
-     * @brief Construct an authentication service with custom configuration.
+     * @brief Construct an auth service with custom configuration.
      *
      * @param users User storage backend.
      * @param sessions Session storage backend.
@@ -124,24 +121,20 @@ namespace rixlib::auth
     /**
      * @brief Register a new user.
      *
-     * This method validates the email and password, checks if the user already
-     * exists, hashes the password, creates the user, and stores it.
-     *
      * @param request Registration request.
      * @return AuthResult containing the created user on success.
      */
-    [[nodiscard]] AuthResult<User> register_user(const RegisterRequest &request);
+    [[nodiscard]] AuthResult<User>
+    register_user(const RegisterRequest &request);
 
     /**
      * @brief Authenticate a user and create a session.
      *
-     * This method validates credentials, verifies the password, creates a
-     * session, and stores it.
-     *
      * @param request Login request.
-     * @return AuthResult containing the authenticated user and session.
+     * @return AuthResult containing user, session, and token on success.
      */
-    [[nodiscard]] AuthResult<LoginResult> login(const LoginRequest &request);
+    [[nodiscard]] AuthResult<LoginResult>
+    login(const LoginRequest &request);
 
     /**
      * @brief Revoke a session.
@@ -152,22 +145,49 @@ namespace rixlib::auth
     [[nodiscard]] AuthStatus logout(std::string_view session_id);
 
     /**
+     * @brief Revoke all sessions for a user.
+     *
+     * @param user_id User identifier.
+     * @return AuthStatus indicating success or failure.
+     */
+    [[nodiscard]] AuthStatus logout_user(std::string_view user_id);
+
+    /**
      * @brief Find and validate a session.
      *
      * @param session_id Session identifier.
-     * @return AuthResult containing the usable session when valid.
+     * @return AuthResult containing the usable session.
      */
-    [[nodiscard]] AuthResult<Session> authenticate_session(std::string_view session_id);
+    [[nodiscard]] AuthResult<Session>
+    authenticate_session(std::string_view session_id);
 
     /**
-     * @brief Return the current authentication configuration.
+     * @brief Refresh a valid session.
+     *
+     * @param session_id Session identifier.
+     * @return AuthResult containing the refreshed session.
+     */
+    [[nodiscard]] AuthResult<Session>
+    refresh_session(std::string_view session_id);
+
+    /**
+     * @brief Create a short-lived token for a user.
+     *
+     * @param user_id User identifier.
+     * @return AuthResult containing the generated token.
+     */
+    [[nodiscard]] AuthResult<Token>
+    issue_token(std::string_view user_id);
+
+    /**
+     * @brief Return the current configuration.
      *
      * @return Authentication configuration.
      */
     [[nodiscard]] const AuthConfig &config() const noexcept;
 
     /**
-     * @brief Return the password hasher used by this auth service.
+     * @brief Return the password hasher.
      *
      * @return Password hasher.
      */
@@ -180,16 +200,28 @@ namespace rixlib::auth
     [[nodiscard]] AuthStatus validate_login_request(
         const LoginRequest &request) const;
 
-    [[nodiscard]] bool is_valid_email(std::string_view email) const noexcept;
+    [[nodiscard]] AuthStatus validate_email(std::string_view email) const;
 
-    [[nodiscard]] std::string make_user_id() const;
-
-    [[nodiscard]] std::string make_session_id() const;
+    [[nodiscard]] AuthStatus validate_password_for_register(
+        std::string_view password) const;
 
     [[nodiscard]] std::int64_t now_seconds() const noexcept;
 
+    [[nodiscard]] AuthResult<std::string> make_user_id() const;
+    [[nodiscard]] AuthResult<std::string> make_session_id() const;
+    [[nodiscard]] AuthResult<std::string> make_token_value() const;
+
+    [[nodiscard]] AuthResult<std::string>
+    make_secure_id(std::string_view prefix) const;
+
+    [[nodiscard]] Token make_token_for_user(
+        std::string user_id,
+        std::int64_t now,
+        std::string value) const;
+
     UserStore *users_ = nullptr;
     SessionStore *sessions_ = nullptr;
+
     AuthConfig config_;
     PasswordHasher password_hasher_;
   };

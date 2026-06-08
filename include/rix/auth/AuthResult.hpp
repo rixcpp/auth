@@ -12,8 +12,6 @@
  *
  *  Rix
  *
- *  Result type used by rix/auth operations.
- *
  */
 
 #ifndef RIXCPP_AUTH_INCLUDE_RIX_AUTH_AUTHRESULT_HPP_INCLUDED
@@ -30,20 +28,40 @@ namespace rixlib::auth
    * @brief Result object returned by authentication operations.
    *
    * AuthResult stores either a value of type T or an AuthError.
-   * It keeps authentication APIs explicit and avoids throwing exceptions
-   * for normal business failures such as invalid credentials or expired tokens.
    *
-   * @tparam T Value type returned on success.
+   * This type is used for operations that return data, for example:
+   *
+   * @code
+   * AuthResult<User>
+   * AuthResult<Session>
+   * AuthResult<LoginResult>
+   * @endcode
+   *
+   * Normal authentication failures such as invalid credentials, expired
+   * sessions, or validation errors are represented as explicit errors instead
+   * of exceptions.
+   *
+   * @tparam T Success value type.
    */
   template <typename T>
   class AuthResult
   {
   public:
     /**
+     * @brief Success value type.
+     */
+    using value_type = T;
+
+    /**
+     * @brief Error value type.
+     */
+    using error_type = AuthError;
+
+    /**
      * @brief Create a successful result.
      *
      * @param value Success value.
-     * @return AuthResult containing the value.
+     * @return AuthResult containing the success value.
      */
     [[nodiscard]] static AuthResult success(T value)
     {
@@ -86,6 +104,16 @@ namespace rixlib::auth
     }
 
     /**
+     * @brief Boolean conversion.
+     *
+     * @return true if the operation succeeded.
+     */
+    [[nodiscard]] explicit operator bool() const noexcept
+    {
+      return ok();
+    }
+
+    /**
      * @brief Return the success value.
      *
      * The caller must check ok() before calling this function.
@@ -110,6 +138,18 @@ namespace rixlib::auth
     }
 
     /**
+     * @brief Move the success value out of the result.
+     *
+     * The caller must check ok() before calling this function.
+     *
+     * @return Moved success value.
+     */
+    [[nodiscard]] T move_value()
+    {
+      return std::move(*value_);
+    }
+
+    /**
      * @brief Return the authentication error.
      *
      * When the result is successful, this returns an empty AuthError.
@@ -129,8 +169,14 @@ namespace rixlib::auth
   /**
    * @brief Result object for operations that only return success or failure.
    *
-   * AuthStatus is used when an operation does not need to return a value,
-   * for example logout, session deletion, or password update.
+   * AuthStatus is used when an operation does not return a value, for example:
+   *
+   * @code
+   * logout()
+   * remove_by_id()
+   * revoke_by_id()
+   * update()
+   * @endcode
    */
   class AuthStatus
   {
@@ -179,6 +225,16 @@ namespace rixlib::auth
     }
 
     /**
+     * @brief Boolean conversion.
+     *
+     * @return true if the operation succeeded.
+     */
+    [[nodiscard]] explicit operator bool() const noexcept
+    {
+      return ok();
+    }
+
+    /**
      * @brief Return the authentication error.
      *
      * @return Const reference to the error.
@@ -191,6 +247,7 @@ namespace rixlib::auth
   private:
     AuthError error_;
   };
+
 } // namespace rixlib::auth
 
 #endif // RIXCPP_AUTH_INCLUDE_RIX_AUTH_AUTHRESULT_HPP_INCLUDED

@@ -12,8 +12,6 @@
  *
  *  Rix
  *
- *  Authentication error model for rix/auth.
- *
  */
 
 #ifndef RIXCPP_AUTH_INCLUDE_RIX_AUTH_AUTHERROR_HPP_INCLUDED
@@ -25,134 +23,100 @@
 namespace rixlib::auth
 {
   /**
-   * @brief Authentication error category.
+   * @brief Stable authentication error codes.
    *
-   * AuthErrorCode describes the reason why an authentication operation failed.
-   * It is intentionally small and stable so applications can safely switch on it.
+   * These codes are part of the public rix/auth API. They describe
+   * authentication-domain failures, not low-level implementation details.
    */
   enum class AuthErrorCode
   {
-    /**
-     * @brief No error occurred.
-     */
     None,
 
-    /**
-     * @brief The input provided by the caller is invalid.
-     */
     InvalidInput,
-
-    /**
-     * @brief The email address is invalid.
-     */
     InvalidEmail,
-
-    /**
-     * @brief The password is invalid or too weak.
-     */
     InvalidPassword,
 
-    /**
-     * @brief The requested user was not found.
-     */
     UserNotFound,
-
-    /**
-     * @brief A user already exists for the given identity.
-     */
     UserAlreadyExists,
 
-    /**
-     * @brief The provided credentials are invalid.
-     */
     InvalidCredentials,
+    EmailVerificationRequired,
+    UserDisabled,
 
-    /**
-     * @brief The session is invalid.
-     */
     InvalidSession,
-
-    /**
-     * @brief The session has expired.
-     */
     SessionExpired,
+    SessionRevoked,
 
-    /**
-     * @brief The provided token is invalid.
-     */
     InvalidToken,
-
-    /**
-     * @brief The provided token has expired.
-     */
     TokenExpired,
+    TokenRevoked,
 
-    /**
-     * @brief The operation cannot be completed in the current state.
-     */
-    InvalidState,
-
-    /**
-     * @brief The storage layer failed.
-     */
     StoreError,
+    CryptoError,
+    ValidationError,
+    ConfigurationError,
 
-    /**
-     * @brief An unknown error occurred.
-     */
     Unknown
   };
 
   /**
-   * @brief Rich authentication error value.
+   * @brief Authentication error value.
    *
    * AuthError stores a stable error code and a human-readable message.
-   * The code is intended for programmatic decisions, while the message is
-   * intended for logs and debugging.
+   * The code is intended for programmatic decisions. The message is intended
+   * for logs, diagnostics, and developer feedback.
    */
   class AuthError
   {
   public:
     /**
-     * @brief Construct an empty error.
+     * @brief Construct a success error value.
      */
     AuthError() = default;
 
     /**
      * @brief Construct an authentication error.
      *
-     * @param code Stable error code.
+     * @param code Stable authentication error code.
      * @param message Human-readable error message.
      */
     AuthError(AuthErrorCode code, std::string message);
 
     /**
-     * @brief Return true when this object represents an error.
+     * @brief Return true when this value represents success.
      *
-     * @return true if the error code is not AuthErrorCode::None.
-     */
-    [[nodiscard]] bool has_error() const noexcept;
-
-    /**
-     * @brief Return true when this object does not represent an error.
-     *
-     * @return true if the error code is AuthErrorCode::None.
+     * @return true if code is AuthErrorCode::None.
      */
     [[nodiscard]] bool ok() const noexcept;
 
     /**
+     * @brief Return true when this value represents failure.
+     *
+     * @return true if code is not AuthErrorCode::None.
+     */
+    [[nodiscard]] bool has_error() const noexcept;
+
+    /**
      * @brief Return the stable error code.
      *
-     * @return The error code.
+     * @return Authentication error code.
      */
     [[nodiscard]] AuthErrorCode code() const noexcept;
 
     /**
      * @brief Return the human-readable error message.
      *
-     * @return The error message.
+     * @return Error message.
      */
     [[nodiscard]] const std::string &message() const noexcept;
+
+    /**
+     * @brief Return true when the error code equals the given code.
+     *
+     * @param code Error code to compare.
+     * @return true if the stored code matches.
+     */
+    [[nodiscard]] bool is(AuthErrorCode code) const noexcept;
 
   private:
     AuthErrorCode code_ = AuthErrorCode::None;
@@ -160,28 +124,31 @@ namespace rixlib::auth
   };
 
   /**
-   * @brief Return a string name for an authentication error code.
+   * @brief Convert an authentication error code to a stable string.
    *
-   * @param code Error code to convert.
-   * @return Stable string representation of the error code.
+   * @param code Error code.
+   * @return Stable string representation.
    */
   [[nodiscard]] std::string_view to_string(AuthErrorCode code) noexcept;
 
   /**
-   * @brief Create an empty authentication error.
+   * @brief Create a success authentication error value.
    *
-   * @return An AuthError with AuthErrorCode::None.
+   * @return AuthError with AuthErrorCode::None.
    */
   [[nodiscard]] AuthError make_auth_ok();
 
   /**
    * @brief Create an authentication error.
    *
-   * @param code Stable error code.
+   * @param code Stable authentication error code.
    * @param message Human-readable error message.
-   * @return AuthError containing the given code and message.
+   * @return AuthError value.
    */
-  [[nodiscard]] AuthError make_auth_error(AuthErrorCode code, std::string message);
+  [[nodiscard]] AuthError make_auth_error(
+      AuthErrorCode code,
+      std::string message);
+
 } // namespace rixlib::auth
 
 #endif // RIXCPP_AUTH_INCLUDE_RIX_AUTH_AUTHERROR_HPP_INCLUDED

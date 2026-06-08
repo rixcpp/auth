@@ -21,18 +21,19 @@
 namespace rixlib::auth
 {
   AuthError::AuthError(AuthErrorCode code, std::string message)
-      : code_(code), message_(std::move(message))
+      : code_(code),
+        message_(std::move(message))
   {
-  }
-
-  bool AuthError::has_error() const noexcept
-  {
-    return code_ != AuthErrorCode::None;
   }
 
   bool AuthError::ok() const noexcept
   {
     return code_ == AuthErrorCode::None;
+  }
+
+  bool AuthError::has_error() const noexcept
+  {
+    return !ok();
   }
 
   AuthErrorCode AuthError::code() const noexcept
@@ -45,36 +46,60 @@ namespace rixlib::auth
     return message_;
   }
 
+  bool AuthError::is(AuthErrorCode code) const noexcept
+  {
+    return code_ == code;
+  }
+
   std::string_view to_string(AuthErrorCode code) noexcept
   {
     switch (code)
     {
     case AuthErrorCode::None:
       return "None";
+
     case AuthErrorCode::InvalidInput:
       return "InvalidInput";
     case AuthErrorCode::InvalidEmail:
       return "InvalidEmail";
     case AuthErrorCode::InvalidPassword:
       return "InvalidPassword";
+
     case AuthErrorCode::UserNotFound:
       return "UserNotFound";
     case AuthErrorCode::UserAlreadyExists:
       return "UserAlreadyExists";
+
     case AuthErrorCode::InvalidCredentials:
       return "InvalidCredentials";
+    case AuthErrorCode::EmailVerificationRequired:
+      return "EmailVerificationRequired";
+    case AuthErrorCode::UserDisabled:
+      return "UserDisabled";
+
     case AuthErrorCode::InvalidSession:
       return "InvalidSession";
     case AuthErrorCode::SessionExpired:
       return "SessionExpired";
+    case AuthErrorCode::SessionRevoked:
+      return "SessionRevoked";
+
     case AuthErrorCode::InvalidToken:
       return "InvalidToken";
     case AuthErrorCode::TokenExpired:
       return "TokenExpired";
-    case AuthErrorCode::InvalidState:
-      return "InvalidState";
+    case AuthErrorCode::TokenRevoked:
+      return "TokenRevoked";
+
     case AuthErrorCode::StoreError:
       return "StoreError";
+    case AuthErrorCode::CryptoError:
+      return "CryptoError";
+    case AuthErrorCode::ValidationError:
+      return "ValidationError";
+    case AuthErrorCode::ConfigurationError:
+      return "ConfigurationError";
+
     case AuthErrorCode::Unknown:
       return "Unknown";
     }
@@ -87,7 +112,9 @@ namespace rixlib::auth
     return AuthError{};
   }
 
-  AuthError make_auth_error(AuthErrorCode code, std::string message)
+  AuthError make_auth_error(
+      AuthErrorCode code,
+      std::string message)
   {
     return AuthError{code, std::move(message)};
   }

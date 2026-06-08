@@ -12,8 +12,6 @@
  *
  *  Rix
  *
- *  User storage interface for rix/auth.
- *
  */
 
 #ifndef RIXCPP_AUTH_INCLUDE_RIX_AUTH_USERSTORE_HPP_INCLUDED
@@ -23,22 +21,19 @@
 #include <rix/auth/User.hpp>
 
 #include <optional>
-#include <string>
 #include <string_view>
 #include <vector>
 
 namespace rixlib::auth
 {
   /**
-   * @brief Abstract storage interface for users.
+   * @brief Abstract user storage interface.
    *
-   * UserStore defines the persistence contract used by rix/auth to create,
-   * find, update, and delete users.
+   * UserStore defines the persistence contract used by rix/auth for user
+   * creation, lookup, update, deletion, and existence checks.
    *
-   * The goal is to keep Auth simple for developers while allowing the storage
-   * implementation to evolve independently. Applications can later provide
-   * stores backed by memory, files, SQLite, MySQL, PostgreSQL, Redis, or any
-   * Vix-based storage module without changing the public Auth API.
+   * Concrete implementations can be backed by memory, SQLite, MySQL, or any
+   * other storage system without changing the public Auth API.
    */
   class UserStore
   {
@@ -49,7 +44,7 @@ namespace rixlib::auth
     virtual ~UserStore();
 
     /**
-     * @brief Save a new user.
+     * @brief Create a new user.
      *
      * @param user User to create.
      * @return AuthStatus indicating success or failure.
@@ -65,7 +60,7 @@ namespace rixlib::auth
     [[nodiscard]] virtual AuthStatus update(const User &user) = 0;
 
     /**
-     * @brief Delete a user by identifier.
+     * @brief Remove a user by identifier.
      *
      * @param id User identifier.
      * @return AuthStatus indicating success or failure.
@@ -91,7 +86,7 @@ namespace rixlib::auth
     find_by_email(std::string_view email) const = 0;
 
     /**
-     * @brief Return true when a user exists for the given identifier.
+     * @brief Return true when a user exists with the given identifier.
      *
      * @param id User identifier.
      * @return AuthResult containing true when a matching user exists.
@@ -100,7 +95,7 @@ namespace rixlib::auth
     exists_by_id(std::string_view id) const = 0;
 
     /**
-     * @brief Return true when a user exists for the given email address.
+     * @brief Return true when a user exists with the given email address.
      *
      * @param email User email address.
      * @return AuthResult containing true when a matching user exists.
@@ -111,11 +106,11 @@ namespace rixlib::auth
     /**
      * @brief Return all stored users.
      *
-     * This function is mainly useful for small stores, tests, admin tools,
-     * and future migrations. Large production stores may implement pagination
-     * later through a dedicated store type.
+     * This is mainly useful for tests, small stores, admin tools, and future
+     * migration utilities. Large production stores should prefer pagination in
+     * a dedicated higher-level API.
      *
-     * @return AuthResult containing the list of users.
+     * @return AuthResult containing all users.
      */
     [[nodiscard]] virtual AuthResult<std::vector<User>> all() const = 0;
   };

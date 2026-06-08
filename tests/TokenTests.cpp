@@ -16,151 +16,177 @@
 
 #include <rix/auth/Token.hpp>
 
-#include <cassert>
-#include <cstdint>
+#include <gtest/gtest.h>
 
 namespace
 {
-  void test_default_token_is_invalid()
-  {
-    const rixlib::auth::Token token;
+  using rixlib::auth::Token;
 
-    assert(token.value().empty());
-    assert(token.user_id().empty());
-    assert(token.issuer().empty());
-    assert(token.issued_at() == 0);
-    assert(token.expires_at() == 0);
-    assert(!token.revoked());
-    assert(!token.valid());
+  TEST(TokenTests, DefaultTokenIsInvalid)
+  {
+    const Token token;
+
+    EXPECT_TRUE(token.value().empty());
+    EXPECT_TRUE(token.user_id().empty());
+    EXPECT_TRUE(token.issuer().empty());
+    EXPECT_EQ(token.issued_at(), 0);
+    EXPECT_EQ(token.expires_at(), 0);
+    EXPECT_FALSE(token.revoked());
+    EXPECT_FALSE(token.valid());
   }
 
-  void test_constructed_token_has_expected_values()
+  TEST(TokenTests, ConstructedTokenStoresFields)
   {
-    const std::int64_t issued_at = 1000;
-    const std::int64_t expires_at = 2000;
-
-    const rixlib::auth::Token token{
-        "token_value",
+    const Token token{
+        "token_1",
         "user_1",
-        issued_at,
-        expires_at};
+        1000,
+        2000};
 
-    assert(token.value() == "token_value");
-    assert(token.user_id() == "user_1");
-    assert(token.issuer().empty());
-    assert(token.issued_at() == issued_at);
-    assert(token.expires_at() == expires_at);
-    assert(!token.revoked());
-    assert(token.valid());
+    EXPECT_EQ(token.value(), "token_1");
+    EXPECT_EQ(token.user_id(), "user_1");
+    EXPECT_EQ(token.issued_at(), 1000);
+    EXPECT_EQ(token.expires_at(), 2000);
+    EXPECT_FALSE(token.revoked());
+    EXPECT_TRUE(token.valid());
   }
 
-  void test_token_setters_update_values()
+  TEST(TokenTests, SettersUpdateTokenFields)
   {
-    rixlib::auth::Token token;
+    Token token;
 
     token.set_value("token_2");
     token.set_user_id("user_2");
     token.set_issuer("rix/auth");
-    token.set_issued_at(3000);
-    token.set_expires_at(4000);
+    token.set_issued_at(100);
+    token.set_expires_at(200);
     token.set_revoked(true);
 
-    assert(token.value() == "token_2");
-    assert(token.user_id() == "user_2");
-    assert(token.issuer() == "rix/auth");
-    assert(token.issued_at() == 3000);
-    assert(token.expires_at() == 4000);
-    assert(token.revoked());
-    assert(token.valid());
+    EXPECT_EQ(token.value(), "token_2");
+    EXPECT_EQ(token.user_id(), "user_2");
+    EXPECT_EQ(token.issuer(), "rix/auth");
+    EXPECT_EQ(token.issued_at(), 100);
+    EXPECT_EQ(token.expires_at(), 200);
+    EXPECT_TRUE(token.revoked());
+    EXPECT_TRUE(token.valid());
   }
 
-  void test_belongs_to_checks_user_id()
+  TEST(TokenTests, BelongsToReturnsTrueOnlyForMatchingUser)
   {
-    rixlib::auth::Token token;
-    token.set_user_id("user_3");
+    const Token token{
+        "token_3",
+        "user_3",
+        1000,
+        2000};
 
-    assert(token.belongs_to("user_3"));
-    assert(!token.belongs_to("user_4"));
-    assert(!token.belongs_to(""));
+    EXPECT_TRUE(token.belongs_to("user_3"));
+    EXPECT_FALSE(token.belongs_to("user_4"));
+    EXPECT_FALSE(token.belongs_to(""));
   }
 
-  void test_matches_checks_token_value()
+  TEST(TokenTests, MatchesReturnsTrueOnlyForMatchingTokenValue)
   {
-    rixlib::auth::Token token;
-    token.set_value("secret-token");
-
-    assert(token.matches("secret-token"));
-    assert(!token.matches("other-token"));
-    assert(!token.matches(""));
-  }
-
-  void test_token_requires_value_and_user_id_to_be_valid()
-  {
-    rixlib::auth::Token token;
-
-    assert(!token.valid());
-
-    token.set_value("token_3");
-    assert(!token.valid());
-
-    token.set_user_id("user_3");
-    assert(token.valid());
-
-    token.set_value("");
-    assert(!token.valid());
-  }
-
-  void test_expired_returns_true_after_expiration()
-  {
-    rixlib::auth::Token token;
-    token.set_expires_at(1000);
-
-    assert(!token.expired(999));
-    assert(token.expired(1000));
-    assert(token.expired(1001));
-  }
-
-  void test_zero_expiration_means_not_expired()
-  {
-    rixlib::auth::Token token;
-    token.set_expires_at(0);
-
-    assert(!token.expired(0));
-    assert(!token.expired(1000));
-  }
-
-  void test_usable_requires_valid_not_revoked_and_not_expired()
-  {
-    rixlib::auth::Token token{
+    const Token token{
         "token_4",
         "user_4",
         1000,
         2000};
 
-    assert(token.usable(1500));
+    EXPECT_TRUE(token.matches("token_4"));
+    EXPECT_FALSE(token.matches("token_5"));
+    EXPECT_FALSE(token.matches(""));
+  }
+
+  TEST(TokenTests, ExpiredReturnsFalseBeforeExpiration)
+  {
+    const Token token{
+        "token_5",
+        "user_5",
+        1000,
+        2000};
+
+    EXPECT_FALSE(token.expired(1000));
+    EXPECT_FALSE(token.expired(1999));
+  }
+
+  TEST(TokenTests, ExpiredReturnsTrueAtAndAfterExpiration)
+  {
+    const Token token{
+        "token_6",
+        "user_6",
+        1000,
+        2000};
+
+    EXPECT_TRUE(token.expired(2000));
+    EXPECT_TRUE(token.expired(2001));
+  }
+
+  TEST(TokenTests, ZeroExpirationDoesNotExpire)
+  {
+    const Token token{
+        "token_7",
+        "user_7",
+        1000,
+        0};
+
+    EXPECT_FALSE(token.expired(1000));
+    EXPECT_FALSE(token.expired(999999));
+  }
+
+  TEST(TokenTests, UsableRequiresValidNotRevokedAndNotExpired)
+  {
+    Token token{
+        "token_8",
+        "user_8",
+        1000,
+        2000};
+
+    EXPECT_TRUE(token.usable(1500));
 
     token.set_revoked(true);
-    assert(!token.usable(1500));
+
+    EXPECT_FALSE(token.usable(1500));
 
     token.set_revoked(false);
-    assert(!token.usable(2000));
 
-    token.set_value("");
-    assert(!token.usable(1500));
+    EXPECT_FALSE(token.usable(2000));
+  }
+
+  TEST(TokenTests, RevokeMarksTokenAsRevoked)
+  {
+    Token token{
+        "token_9",
+        "user_9",
+        1000,
+        2000};
+
+    EXPECT_FALSE(token.revoked());
+
+    token.revoke();
+
+    EXPECT_TRUE(token.revoked());
+    EXPECT_FALSE(token.usable(1500));
+  }
+
+  TEST(TokenTests, MissingValueMakesTokenInvalid)
+  {
+    const Token token{
+        "",
+        "user_10",
+        1000,
+        2000};
+
+    EXPECT_FALSE(token.valid());
+  }
+
+  TEST(TokenTests, MissingUserIdMakesTokenInvalid)
+  {
+    const Token token{
+        "token_10",
+        "",
+        1000,
+        2000};
+
+    EXPECT_FALSE(token.valid());
   }
 } // namespace
-
-int main()
-{
-  test_default_token_is_invalid();
-  test_constructed_token_has_expected_values();
-  test_token_setters_update_values();
-  test_belongs_to_checks_user_id();
-  test_matches_checks_token_value();
-  test_token_requires_value_and_user_id_to_be_valid();
-  test_expired_returns_true_after_expiration();
-  test_zero_expiration_means_not_expired();
-  test_usable_requires_valid_not_revoked_and_not_expired();
-
-  return 0;
-}

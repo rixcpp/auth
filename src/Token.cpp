@@ -96,6 +96,16 @@ namespace rixlib::auth
     return !value_.empty() && !user_id_.empty();
   }
 
+  bool Token::has_value() const noexcept
+  {
+    return !value_.empty();
+  }
+
+  bool Token::has_user_id() const noexcept
+  {
+    return !user_id_.empty();
+  }
+
   bool Token::belongs_to(std::string_view value) const noexcept
   {
     return user_id_ == value;
@@ -106,6 +116,11 @@ namespace rixlib::auth
     return value_ == value;
   }
 
+  bool Token::issued_by(std::string_view value) const noexcept
+  {
+    return issuer_ == value;
+  }
+
   bool Token::expired(std::int64_t now) const noexcept
   {
     return expires_at_ > 0 && now >= expires_at_;
@@ -114,5 +129,10 @@ namespace rixlib::auth
   bool Token::usable(std::int64_t now) const noexcept
   {
     return valid() && !revoked_ && !expired(now);
+  }
+
+  void Token::revoke() noexcept
+  {
+    revoked_ = true;
   }
 } // namespace rixlib::auth

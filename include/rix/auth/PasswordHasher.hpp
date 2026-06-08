@@ -12,39 +12,44 @@
  *
  *  Rix
  *
- *  Password hashing helper for rix/auth.
- *
  */
 
 #ifndef RIXCPP_AUTH_INCLUDE_RIX_AUTH_PASSWORDHASHER_HPP_INCLUDED
 #define RIXCPP_AUTH_INCLUDE_RIX_AUTH_PASSWORDHASHER_HPP_INCLUDED
 
+#include <rix/auth/AuthConfig.hpp>
 #include <rix/auth/AuthResult.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
 namespace rixlib::auth
 {
   /**
-   * @brief Password hashing component used by rix/auth.
+   * @brief Production password hashing service.
    *
-   * PasswordHasher hides password hashing details behind a simple API.
-   * Application developers should use Auth instead of calling this class
-   * directly in most cases.
+   * PasswordHasher validates password policy and delegates hashing and
+   * verification to vix::crypto.
    *
-   * The current implementation is intentionally simple for the first version
-   * of rix/auth. The public API is designed so the internal algorithm can be
-   * upgraded later without changing the developer-facing Auth API.
+   * It does not store plain-text passwords and should only return encoded
+   * password hashes safe for database storage.
    */
   class PasswordHasher
   {
   public:
     /**
-     * @brief Construct a password hasher with default settings.
+     * @brief Construct a password hasher with development defaults.
      */
     PasswordHasher();
+
+    /**
+     * @brief Construct a password hasher from auth configuration.
+     *
+     * @param config Authentication configuration.
+     */
+    explicit PasswordHasher(const AuthConfig &config);
 
     /**
      * @brief Hash a plain-text password.
@@ -58,11 +63,20 @@ namespace rixlib::auth
      * @brief Verify a plain-text password against a stored hash.
      *
      * @param password Plain-text password.
-     * @param password_hash Stored password hash.
-     * @return true if the password matches the stored hash.
+     * @param password_hash Stored encoded password hash.
+     * @return true if the password matches.
      */
-    [[nodiscard]] bool verify(std::string_view password,
-                              std::string_view password_hash) const;
+    [[nodiscard]] bool verify(
+        std::string_view password,
+        std::string_view password_hash) const;
+
+    /**
+     * @brief Return true when the password satisfies the configured policy.
+     *
+     * @param password Plain-text password.
+     * @return true if the password is accepted.
+     */
+    [[nodiscard]] bool accepts(std::string_view password) const noexcept;
 
     /**
      * @brief Return the minimum accepted password length.
@@ -79,15 +93,68 @@ namespace rixlib::auth
     void set_min_password_length(std::size_t value) noexcept;
 
     /**
-     * @brief Return true when the password satisfies the minimum policy.
+     * @brief Return the maximum accepted password length.
      *
-     * @param password Plain-text password.
-     * @return true if the password is accepted.
+     * @return Maximum password length.
      */
-    [[nodiscard]] bool accepts(std::string_view password) const noexcept;
+    [[nodiscard]] std::size_t max_password_length() const noexcept;
+
+    /**
+     * @brief Set the maximum accepted password length.
+     *
+     * @param value Maximum password length.
+     */
+    void set_max_password_length(std::size_t value) noexcept;
+
+    /**
+     * @brief Return the password hash iteration count.
+     *
+     * @return PBKDF2 iteration count.
+     */
+    [[nodiscard]] std::uint32_t iterations() const noexcept;
+
+    /**
+     * @brief Set the password hash iteration count.
+     *
+     * @param value PBKDF2 iteration count.
+     */
+    void set_iterations(std::uint32_t value) noexcept;
+
+    /**
+     * @brief Return the password salt size in bytes.
+     *
+     * @return Salt size in bytes.
+     */
+    [[nodiscard]] std::size_t salt_size() const noexcept;
+
+    /**
+     * @brief Set the password salt size in bytes.
+     *
+     * @param value Salt size in bytes.
+     */
+    void set_salt_size(std::size_t value) noexcept;
+
+    /**
+     * @brief Return the derived password hash size in bytes.
+     *
+     * @return Hash size in bytes.
+     */
+    [[nodiscard]] std::size_t hash_size() const noexcept;
+
+    /**
+     * @brief Set the derived password hash size in bytes.
+     *
+     * @param value Hash size in bytes.
+     */
+    void set_hash_size(std::size_t value) noexcept;
 
   private:
     std::size_t min_password_length_ = 8;
+    std::size_t max_password_length_ = 1024;
+
+    std::uint32_t iterations_ = 310000;
+    std::size_t salt_size_ = 16;
+    std::size_t hash_size_ = 32;
   };
 } // namespace rixlib::auth
 

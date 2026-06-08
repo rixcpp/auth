@@ -104,11 +104,33 @@ namespace rixlib::auth
 
   bool User::valid() const noexcept
   {
-    return !id_.empty() && !email_.empty();
+    return !id_.empty() &&
+           !email_.empty() &&
+           !password_hash_.empty();
+  }
+
+  bool User::has_id() const noexcept
+  {
+    return !id_.empty();
+  }
+
+  bool User::has_email() const noexcept
+  {
+    return !email_.empty();
   }
 
   bool User::has_email(std::string_view value) const noexcept
   {
     return email_ == value;
+  }
+
+  bool User::has_id(std::string_view value) const noexcept
+  {
+    return id_ == value;
+  }
+
+  bool User::can_authenticate() const noexcept
+  {
+    return valid() && active_;
   }
 } // namespace rixlib::auth

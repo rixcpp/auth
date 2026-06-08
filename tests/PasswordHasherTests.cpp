@@ -14,111 +14,134 @@
  *
  */
 
+#include <rix/auth/AuthConfig.hpp>
+#include <rix/auth/AuthError.hpp>
 #include <rix/auth/PasswordHasher.hpp>
 
-#include <cassert>
-#include <string>
+#include <gtest/gtest.h>
 
 namespace
 {
-  void test_default_min_password_length_is_eight()
-  {
-    const rixlib::auth::PasswordHasher hasher;
+  using rixlib::auth::AuthConfig;
+  using rixlib::auth::AuthErrorCode;
+  using rixlib::auth::PasswordHasher;
 
-    assert(hasher.min_password_length() == 8);
+  TEST(PasswordHasherTests, DefaultHasherAcceptsPasswordsWithMinimumLength)
+  {
+    const PasswordHasher hasher;
+
+    EXPECT_FALSE(hasher.accepts(""));
+    EXPECT_FALSE(hasher.accepts("short"));
+    EXPECT_TRUE(hasher.accepts("password"));
+    EXPECT_TRUE(hasher.accepts("very-strong-password"));
   }
 
-  void test_set_min_password_length_updates_policy()
+  TEST(PasswordHasherTests, ConfigConstructorUsesConfiguredMinimumLength)
   {
-    rixlib::auth::PasswordHasher hasher;
+    AuthConfig config;
+    config.set_min_password_length(12);
 
+    const PasswordHasher hasher{config};
+
+    EXPECT_FALSE(hasher.accepts("password"));
+    EXPECT_TRUE(hasher.accepts("long-password"));
+  }
+
+  TEST(PasswordHasherTests, HashRejectsPasswordBelowMinimumLength)
+  {
+    PasswordHasher hasher;
     hasher.set_min_password_length(12);
-
-    assert(hasher.min_password_length() == 12);
-    assert(!hasher.accepts("short123"));
-    assert(hasher.accepts("long-password"));
-  }
-
-  void test_accepts_password_when_length_is_valid()
-  {
-    const rixlib::auth::PasswordHasher hasher;
-
-    assert(hasher.accepts("secret123"));
-    assert(!hasher.accepts("short"));
-    assert(!hasher.accepts(""));
-  }
-
-  void test_hash_fails_when_password_is_too_short()
-  {
-    const rixlib::auth::PasswordHasher hasher;
 
     const auto result = hasher.hash("short");
 
-    assert(result.failed());
-    assert(result.error().code() == rixlib::auth::AuthErrorCode::InvalidPassword);
+    ASSERT_TRUE(result.failed());
+    EXPECT_EQ(result.error().code(), AuthErrorCode::InvalidPassword);
   }
 
-  void test_hash_succeeds_when_password_is_valid()
+  TEST(PasswordHasherTests, HashAcceptsPasswordThatSatisfiesPolicy)
   {
-    const rixlib::auth::PasswordHasher hasher;
+    const PasswordHasher hasher;
 
-    const auto result = hasher.hash("secret123");
+    const auto result = hasher.hash("correct-password");
 
-    assert(result.ok());
-    assert(!result.value().empty());
+    ASSERT_TRUE(result.ok());
+    EXPECT_FALSE(result.value().empty());
+    EXPECT_NE(result.value(), "correct-password");
   }
 
-  void test_verify_returns_true_for_matching_password()
+  TEST(PasswordHasherTests, HashProducesEncodedPasswordHash)
   {
-    const rixlib::auth::PasswordHasher hasher;
+    const PasswordHasher hasher;
 
-    const auto result = hasher.hash("secret123");
+    const auto result = hasher.hash("correct-password");
 
-    assert(result.ok());
-    assert(hasher.verify("secret123", result.value()));
+    ASSERT_TRUE(result.ok());
+    EXPECT_NE(result.value().find("rix-auth$"), std::string::npos);
   }
 
-  void test_verify_returns_false_for_wrong_password()
+  TEST(PasswordHasherTests, VerifyAcceptsMatchingPassword)
   {
-    const rixlib::auth::PasswordHasher hasher;
+    const PasswordHasher hasher;
 
-    const auto result = hasher.hash("secret123");
+    const auto hash = hasher.hash("correct-password");
 
-    assert(result.ok());
-    assert(!hasher.verify("another-password", result.value()));
+    ASSERT_TRUE(hash.ok());
+    EXPECT_TRUE(hasher.verify("correct-password", hash.value()));
   }
 
-  void test_verify_returns_false_for_empty_hash()
+  TEST(PasswordHasherTests, VerifyRejectsWrongPassword)
   {
-    const rixlib::auth::PasswordHasher hasher;
+    const PasswordHasher hasher;
 
-    assert(!hasher.verify("secret123", ""));
+    const auto hash = hasher.hash("correct-password");
+
+    ASSERT_TRUE(hash.ok());
+    EXPECT_FALSE(hasher.verify("wrong-password", hash.value()));
   }
 
-  void test_same_password_produces_same_hash_for_current_basic_hasher()
+  TEST(PasswordHasherTests, VerifyRejectsEmptyHash)
   {
-    const rixlib::auth::PasswordHasher hasher;
+    const PasswordHasher hasher;
 
-    const auto first = hasher.hash("secret123");
-    const auto second = hasher.hash("secret123");
+    EXPECT_FALSE(hasher.verify("correct-password", ""));
+  }
 
-    assert(first.ok());
-    assert(second.ok());
-    assert(first.value() == second.value());
+  TEST(PasswordHasherTests, VerifyRejectsPasswordBelowPolicy)
+  {
+    PasswordHasher hasher;
+    hasher.set_min_password_length(12);
+
+    const auto hash = hasher.hash("long-password");
+
+    ASSERT_TRUE(hash.ok());
+    EXPECT_FALSE(hasher.verify("short", hash.value()));
+  }
+
+  TEST(PasswordHasherTests, SamePasswordCanBeVerifiedFromStoredHash)
+  {
+    const PasswordHasher hasher;
+
+    const auto hash = hasher.hash("another-correct-password");
+
+    ASSERT_TRUE(hash.ok());
+
+    const std::string stored_hash = hash.value();
+
+    EXPECT_TRUE(hasher.verify("another-correct-password", stored_hash));
+  }
+
+  TEST(PasswordHasherTests, DifferentHashesAreProducedForSamePassword)
+  {
+    const PasswordHasher hasher;
+
+    const auto first = hasher.hash("correct-password");
+    const auto second = hasher.hash("correct-password");
+
+    ASSERT_TRUE(first.ok());
+    ASSERT_TRUE(second.ok());
+
+    EXPECT_NE(first.value(), second.value());
+    EXPECT_TRUE(hasher.verify("correct-password", first.value()));
+    EXPECT_TRUE(hasher.verify("correct-password", second.value()));
   }
 } // namespace
-
-int main()
-{
-  test_default_min_password_length_is_eight();
-  test_set_min_password_length_updates_policy();
-  test_accepts_password_when_length_is_valid();
-  test_hash_fails_when_password_is_too_short();
-  test_hash_succeeds_when_password_is_valid();
-  test_verify_returns_true_for_matching_password();
-  test_verify_returns_false_for_wrong_password();
-  test_verify_returns_false_for_empty_hash();
-  test_same_password_produces_same_hash_for_current_basic_hasher();
-
-  return 0;
-}

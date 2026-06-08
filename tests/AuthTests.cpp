@@ -15,515 +15,635 @@
  */
 
 #include <rix/auth/Auth.hpp>
+#include <rix/auth/AuthConfig.hpp>
+#include <rix/auth/AuthError.hpp>
+#include <rix/auth/stores/MemorySessionStore.hpp>
+#include <rix/auth/stores/MemoryUserStore.hpp>
 
-#include <algorithm>
-#include <cassert>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
+#include <gtest/gtest.h>
 
 namespace
 {
-  class MemoryUserStore final : public rixlib::auth::UserStore
+  using rixlib::auth::Auth;
+  using rixlib::auth::AuthConfig;
+  using rixlib::auth::AuthErrorCode;
+  using rixlib::auth::LoginRequest;
+  using rixlib::auth::MemorySessionStore;
+  using rixlib::auth::MemoryUserStore;
+  using rixlib::auth::RegisterRequest;
+  using rixlib::auth::User;
+
+  [[nodiscard]] AuthConfig test_config()
   {
-  public:
-    [[nodiscard]] rixlib::auth::AuthStatus create(
-        const rixlib::auth::User &user) override
-    {
-      if (!user.valid())
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidInput,
-                "User is invalid."));
-      }
+    AuthConfig config = AuthConfig::development();
+    config.set_min_password_length(8);
+    config.set_session_ttl_seconds(3600);
+    config.set_token_ttl_seconds(600);
+    config.set_issuer("rix/auth/tests");
+    config.set_require_email_verification(false);
+    config.set_rotate_sessions(true);
+    return config;
+  }
 
-      const auto exists = std::any_of(
-          users_.begin(),
-          users_.end(),
-          [&](const rixlib::auth::User &stored)
-          {
-            return stored.id() == user.id() || stored.email() == user.email();
-          });
-
-      if (exists)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::UserAlreadyExists,
-                "User already exists."));
-      }
-
-      users_.push_back(user);
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus update(
-        const rixlib::auth::User &user) override
-    {
-      for (rixlib::auth::User &stored : users_)
-      {
-        if (stored.id() == user.id())
-        {
-          stored = user;
-          return rixlib::auth::AuthStatus::success();
-        }
-      }
-
-      return rixlib::auth::AuthStatus::failure(
-          rixlib::auth::make_auth_error(
-              rixlib::auth::AuthErrorCode::UserNotFound,
-              "User not found."));
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus remove_by_id(
-        std::string_view id) override
-    {
-      const auto old_size = users_.size();
-
-      users_.erase(
-          std::remove_if(
-              users_.begin(),
-              users_.end(),
-              [&](const rixlib::auth::User &user)
-              {
-                return user.id() == id;
-              }),
-          users_.end());
-
-      if (users_.size() == old_size)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::UserNotFound,
-                "User not found."));
-      }
-
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>
-    find_by_id(std::string_view id) const override
-    {
-      for (const rixlib::auth::User &user : users_)
-      {
-        if (user.id() == id)
-        {
-          return rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>::success(user);
-        }
-      }
-
-      return rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>::success(std::nullopt);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>
-    find_by_email(std::string_view email) const override
-    {
-      for (const rixlib::auth::User &user : users_)
-      {
-        if (user.email() == email)
-        {
-          return rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>::success(user);
-        }
-      }
-
-      return rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>::success(std::nullopt);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<bool>
-    exists_by_id(std::string_view id) const override
-    {
-      const auto exists = std::any_of(
-          users_.begin(),
-          users_.end(),
-          [&](const rixlib::auth::User &user)
-          {
-            return user.id() == id;
-          });
-
-      return rixlib::auth::AuthResult<bool>::success(exists);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<bool>
-    exists_by_email(std::string_view email) const override
-    {
-      const auto exists = std::any_of(
-          users_.begin(),
-          users_.end(),
-          [&](const rixlib::auth::User &user)
-          {
-            return user.email() == email;
-          });
-
-      return rixlib::auth::AuthResult<bool>::success(exists);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::vector<rixlib::auth::User>>
-    all() const override
-    {
-      return rixlib::auth::AuthResult<std::vector<rixlib::auth::User>>::success(users_);
-    }
-
-  private:
-    std::vector<rixlib::auth::User> users_;
-  };
-
-  class MemorySessionStore final : public rixlib::auth::SessionStore
-  {
-  public:
-    [[nodiscard]] rixlib::auth::AuthStatus create(
-        const rixlib::auth::Session &session) override
-    {
-      if (!session.valid())
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidInput,
-                "Session is invalid."));
-      }
-
-      const auto exists = std::any_of(
-          sessions_.begin(),
-          sessions_.end(),
-          [&](const rixlib::auth::Session &stored)
-          {
-            return stored.id() == session.id();
-          });
-
-      if (exists)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidSession,
-                "Session already exists."));
-      }
-
-      sessions_.push_back(session);
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus update(
-        const rixlib::auth::Session &session) override
-    {
-      for (rixlib::auth::Session &stored : sessions_)
-      {
-        if (stored.id() == session.id())
-        {
-          stored = session;
-          return rixlib::auth::AuthStatus::success();
-        }
-      }
-
-      return rixlib::auth::AuthStatus::failure(
-          rixlib::auth::make_auth_error(
-              rixlib::auth::AuthErrorCode::InvalidSession,
-              "Session not found."));
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus remove_by_id(
-        std::string_view id) override
-    {
-      const auto old_size = sessions_.size();
-
-      sessions_.erase(
-          std::remove_if(
-              sessions_.begin(),
-              sessions_.end(),
-              [&](const rixlib::auth::Session &session)
-              {
-                return session.id() == id;
-              }),
-          sessions_.end());
-
-      if (sessions_.size() == old_size)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidSession,
-                "Session not found."));
-      }
-
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus revoke_by_id(
-        std::string_view id) override
-    {
-      for (rixlib::auth::Session &session : sessions_)
-      {
-        if (session.id() == id)
-        {
-          session.set_revoked(true);
-          return rixlib::auth::AuthStatus::success();
-        }
-      }
-
-      return rixlib::auth::AuthStatus::failure(
-          rixlib::auth::make_auth_error(
-              rixlib::auth::AuthErrorCode::InvalidSession,
-              "Session not found."));
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus revoke_by_user_id(
-        std::string_view user_id) override
-    {
-      bool changed = false;
-
-      for (rixlib::auth::Session &session : sessions_)
-      {
-        if (session.user_id() == user_id)
-        {
-          session.set_revoked(true);
-          changed = true;
-        }
-      }
-
-      if (!changed)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidSession,
-                "Session not found."));
-      }
-
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::optional<rixlib::auth::Session>>
-    find_by_id(std::string_view id) const override
-    {
-      for (const rixlib::auth::Session &session : sessions_)
-      {
-        if (session.id() == id)
-        {
-          return rixlib::auth::AuthResult<std::optional<rixlib::auth::Session>>::success(session);
-        }
-      }
-
-      return rixlib::auth::AuthResult<std::optional<rixlib::auth::Session>>::success(std::nullopt);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::vector<rixlib::auth::Session>>
-    find_by_user_id(std::string_view user_id) const override
-    {
-      std::vector<rixlib::auth::Session> result;
-
-      for (const rixlib::auth::Session &session : sessions_)
-      {
-        if (session.user_id() == user_id)
-        {
-          result.push_back(session);
-        }
-      }
-
-      return rixlib::auth::AuthResult<std::vector<rixlib::auth::Session>>::success(result);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<bool>
-    exists_by_id(std::string_view id) const override
-    {
-      const auto exists = std::any_of(
-          sessions_.begin(),
-          sessions_.end(),
-          [&](const rixlib::auth::Session &session)
-          {
-            return session.id() == id;
-          });
-
-      return rixlib::auth::AuthResult<bool>::success(exists);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::vector<rixlib::auth::Session>>
-    all() const override
-    {
-      return rixlib::auth::AuthResult<std::vector<rixlib::auth::Session>>::success(sessions_);
-    }
-
-  private:
-    std::vector<rixlib::auth::Session> sessions_;
-  };
-
-  void test_register_user_creates_user()
+  struct AuthFixture
   {
     MemoryUserStore users;
     MemorySessionStore sessions;
-    rixlib::auth::Auth auth{users, sessions};
+    Auth auth;
 
-    const auto result = auth.register_user(
-        rixlib::auth::RegisterRequest{
+    AuthFixture()
+        : users(),
+          sessions(),
+          auth(users, sessions, test_config())
+    {
+    }
+  };
+
+  TEST(AuthTests, RegisterUserCreatesValidUser)
+  {
+    AuthFixture fixture;
+
+    const auto result = fixture.auth.register_user(
+        RegisterRequest{
             "ada@example.com",
-            "secret123"});
+            "correct-password"});
 
-    assert(result.ok());
-    assert(result.value().valid());
-    assert(result.value().email() == "ada@example.com");
-    assert(!result.value().password_hash().empty());
+    ASSERT_TRUE(result.ok());
 
-    const auto exists = users.exists_by_email("ada@example.com");
+    const User &user = result.value();
 
-    assert(exists.ok());
-    assert(exists.value());
+    EXPECT_TRUE(user.valid());
+    EXPECT_FALSE(user.id().empty());
+    EXPECT_EQ(user.email(), "ada@example.com");
+    EXPECT_FALSE(user.password_hash().empty());
+    EXPECT_NE(user.password_hash(), "correct-password");
+    EXPECT_TRUE(user.email_verified());
+    EXPECT_TRUE(user.active());
+    EXPECT_GT(user.created_at(), 0);
+    EXPECT_GT(user.updated_at(), 0);
+    EXPECT_EQ(fixture.users.size(), 1);
   }
 
-  void test_register_user_rejects_invalid_email()
+  TEST(AuthTests, RegisterUserPersistsUserInStore)
   {
-    MemoryUserStore users;
-    MemorySessionStore sessions;
-    rixlib::auth::Auth auth{users, sessions};
+    AuthFixture fixture;
 
-    const auto result = auth.register_user(
-        rixlib::auth::RegisterRequest{
+    const auto registered = fixture.auth.register_user(
+        RegisterRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(registered.ok());
+
+    const auto found = fixture.users.find_by_email("ada@example.com");
+
+    ASSERT_TRUE(found.ok());
+    ASSERT_TRUE(found.value().has_value());
+
+    EXPECT_EQ(found.value()->id(), registered.value().id());
+    EXPECT_EQ(found.value()->email(), "ada@example.com");
+  }
+
+  TEST(AuthTests, RegisterUserRejectsInvalidEmail)
+  {
+    AuthFixture fixture;
+
+    const auto result = fixture.auth.register_user(
+        RegisterRequest{
             "invalid-email",
-            "secret123"});
+            "correct-password"});
 
-    assert(result.failed());
-    assert(result.error().code() == rixlib::auth::AuthErrorCode::InvalidEmail);
+    ASSERT_TRUE(result.failed());
+    EXPECT_EQ(result.error().code(), AuthErrorCode::InvalidEmail);
+    EXPECT_TRUE(fixture.users.empty());
   }
 
-  void test_register_user_rejects_short_password()
+  TEST(AuthTests, RegisterUserRejectsEmptyEmail)
   {
-    MemoryUserStore users;
-    MemorySessionStore sessions;
-    rixlib::auth::Auth auth{users, sessions};
+    AuthFixture fixture;
 
-    const auto result = auth.register_user(
-        rixlib::auth::RegisterRequest{
+    const auto result = fixture.auth.register_user(
+        RegisterRequest{
+            "",
+            "correct-password"});
+
+    ASSERT_TRUE(result.failed());
+    EXPECT_EQ(result.error().code(), AuthErrorCode::InvalidEmail);
+    EXPECT_TRUE(fixture.users.empty());
+  }
+
+  TEST(AuthTests, RegisterUserRejectsWeakPassword)
+  {
+    AuthFixture fixture;
+
+    const auto result = fixture.auth.register_user(
+        RegisterRequest{
             "ada@example.com",
             "short"});
 
-    assert(result.failed());
-    assert(result.error().code() == rixlib::auth::AuthErrorCode::InvalidPassword);
+    ASSERT_TRUE(result.failed());
+    EXPECT_EQ(result.error().code(), AuthErrorCode::InvalidPassword);
+    EXPECT_TRUE(fixture.users.empty());
   }
 
-  void test_register_user_rejects_duplicate_email()
+  TEST(AuthTests, RegisterUserRejectsDuplicateEmail)
+  {
+    AuthFixture fixture;
+
+    const auto first = fixture.auth.register_user(
+        RegisterRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(first.ok());
+
+    const auto second = fixture.auth.register_user(
+        RegisterRequest{
+            "ada@example.com",
+            "another-password"});
+
+    ASSERT_TRUE(second.failed());
+    EXPECT_EQ(second.error().code(), AuthErrorCode::UserAlreadyExists);
+    EXPECT_EQ(fixture.users.size(), 1);
+  }
+
+  TEST(AuthTests, RegisterUserHonorsEmailVerificationConfig)
   {
     MemoryUserStore users;
     MemorySessionStore sessions;
-    rixlib::auth::Auth auth{users, sessions};
 
-    const auto first = auth.register_user(
-        rixlib::auth::RegisterRequest{
+    AuthConfig config = test_config();
+    config.set_require_email_verification(true);
+
+    Auth auth{users, sessions, config};
+
+    const auto result = auth.register_user(
+        RegisterRequest{
             "ada@example.com",
-            "secret123"});
+            "correct-password"});
 
-    const auto second = auth.register_user(
-        rixlib::auth::RegisterRequest{
-            "ada@example.com",
-            "secret123"});
-
-    assert(first.ok());
-    assert(second.failed());
-    assert(second.error().code() == rixlib::auth::AuthErrorCode::UserAlreadyExists);
+    ASSERT_TRUE(result.ok());
+    EXPECT_FALSE(result.value().email_verified());
   }
 
-  void test_login_creates_session()
+  TEST(AuthTests, LoginCreatesSessionAndToken)
   {
-    MemoryUserStore users;
-    MemorySessionStore sessions;
-    rixlib::auth::Auth auth{users, sessions};
+    AuthFixture fixture;
 
-    const auto registered = auth.register_user(
-        rixlib::auth::RegisterRequest{
+    const auto registered = fixture.auth.register_user(
+        RegisterRequest{
             "ada@example.com",
-            "secret123"});
+            "correct-password"});
 
-    const auto logged_in = auth.login(
-        rixlib::auth::LoginRequest{
+    ASSERT_TRUE(registered.ok());
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
             "ada@example.com",
-            "secret123"});
+            "correct-password"});
 
-    assert(registered.ok());
-    assert(logged_in.ok());
-    assert(logged_in.value().user.email() == "ada@example.com");
-    assert(logged_in.value().session.valid());
-    assert(logged_in.value().session.user_id() == logged_in.value().user.id());
+    ASSERT_TRUE(logged_in.ok());
+
+    EXPECT_EQ(logged_in.value().user.email(), "ada@example.com");
+
+    EXPECT_TRUE(logged_in.value().session.valid());
+    EXPECT_FALSE(logged_in.value().session.id().empty());
+    EXPECT_EQ(logged_in.value().session.user_id(), registered.value().id());
+    EXPECT_FALSE(logged_in.value().session.revoked());
+    EXPECT_GT(logged_in.value().session.created_at(), 0);
+    EXPECT_GT(logged_in.value().session.expires_at(),
+              logged_in.value().session.created_at());
+
+    EXPECT_TRUE(logged_in.value().token.valid());
+    EXPECT_FALSE(logged_in.value().token.value().empty());
+    EXPECT_EQ(logged_in.value().token.user_id(), registered.value().id());
+    EXPECT_EQ(logged_in.value().token.issuer(), "rix/auth/tests");
+    EXPECT_GT(logged_in.value().token.issued_at(), 0);
+    EXPECT_GT(logged_in.value().token.expires_at(),
+              logged_in.value().token.issued_at());
+
+    EXPECT_EQ(fixture.sessions.size(), 1);
   }
 
-  void test_login_rejects_wrong_password()
+  TEST(AuthTests, LoginStoresCreatedSession)
   {
-    MemoryUserStore users;
-    MemorySessionStore sessions;
-    rixlib::auth::Auth auth{users, sessions};
+    AuthFixture fixture;
 
-    const auto registered = auth.register_user(
-        rixlib::auth::RegisterRequest{
+    ASSERT_TRUE(fixture.auth.register_user(
+                                RegisterRequest{
+                                    "ada@example.com",
+                                    "correct-password"})
+                    .ok());
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
             "ada@example.com",
-            "secret123"});
+            "correct-password"});
 
-    const auto logged_in = auth.login(
-        rixlib::auth::LoginRequest{
+    ASSERT_TRUE(logged_in.ok());
+
+    const auto stored = fixture.sessions.find_by_id(
+        logged_in.value().session.id());
+
+    ASSERT_TRUE(stored.ok());
+    ASSERT_TRUE(stored.value().has_value());
+
+    EXPECT_EQ(stored.value()->id(), logged_in.value().session.id());
+    EXPECT_EQ(stored.value()->user_id(), logged_in.value().user.id());
+  }
+
+  TEST(AuthTests, LoginRejectsUnknownUserWithInvalidCredentials)
+  {
+    AuthFixture fixture;
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
+            "missing@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(logged_in.failed());
+    EXPECT_EQ(logged_in.error().code(), AuthErrorCode::InvalidCredentials);
+    EXPECT_TRUE(fixture.sessions.empty());
+  }
+
+  TEST(AuthTests, LoginRejectsWrongPasswordWithInvalidCredentials)
+  {
+    AuthFixture fixture;
+
+    ASSERT_TRUE(fixture.auth.register_user(
+                                RegisterRequest{
+                                    "ada@example.com",
+                                    "correct-password"})
+                    .ok());
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
             "ada@example.com",
             "wrong-password"});
 
-    assert(registered.ok());
-    assert(logged_in.failed());
-    assert(logged_in.error().code() == rixlib::auth::AuthErrorCode::InvalidCredentials);
+    ASSERT_TRUE(logged_in.failed());
+    EXPECT_EQ(logged_in.error().code(), AuthErrorCode::InvalidCredentials);
+    EXPECT_TRUE(fixture.sessions.empty());
   }
 
-  void test_authenticate_session_returns_session()
+  TEST(AuthTests, LoginRejectsInvalidEmail)
+  {
+    AuthFixture fixture;
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
+            "invalid-email",
+            "correct-password"});
+
+    ASSERT_TRUE(logged_in.failed());
+    EXPECT_EQ(logged_in.error().code(), AuthErrorCode::InvalidEmail);
+  }
+
+  TEST(AuthTests, LoginRejectsEmptyPassword)
+  {
+    AuthFixture fixture;
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
+            "ada@example.com",
+            ""});
+
+    ASSERT_TRUE(logged_in.failed());
+    EXPECT_EQ(logged_in.error().code(), AuthErrorCode::InvalidPassword);
+  }
+
+  TEST(AuthTests, LoginRejectsInactiveUser)
+  {
+    AuthFixture fixture;
+
+    const auto registered = fixture.auth.register_user(
+        RegisterRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(registered.ok());
+
+    User user = registered.value();
+    user.set_active(false);
+
+    ASSERT_TRUE(fixture.users.update(user).ok());
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(logged_in.failed());
+    EXPECT_EQ(logged_in.error().code(), AuthErrorCode::InvalidCredentials);
+  }
+
+  TEST(AuthTests, LoginRejectsUnverifiedUserWhenVerificationIsRequired)
   {
     MemoryUserStore users;
     MemorySessionStore sessions;
-    rixlib::auth::Auth auth{users, sessions};
+
+    AuthConfig config = test_config();
+    config.set_require_email_verification(true);
+
+    Auth auth{users, sessions, config};
 
     const auto registered = auth.register_user(
-        rixlib::auth::RegisterRequest{
+        RegisterRequest{
             "ada@example.com",
-            "secret123"});
+            "correct-password"});
+
+    ASSERT_TRUE(registered.ok());
+    EXPECT_FALSE(registered.value().email_verified());
 
     const auto logged_in = auth.login(
-        rixlib::auth::LoginRequest{
+        LoginRequest{
             "ada@example.com",
-            "secret123"});
+            "correct-password"});
+
+    ASSERT_TRUE(logged_in.failed());
+    EXPECT_EQ(logged_in.error().code(), AuthErrorCode::InvalidState);
+  }
+
+  TEST(AuthTests, AuthenticateSessionReturnsUsableSession)
+  {
+    AuthFixture fixture;
+
+    ASSERT_TRUE(fixture.auth.register_user(
+                                RegisterRequest{
+                                    "ada@example.com",
+                                    "correct-password"})
+                    .ok());
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(logged_in.ok());
+
+    const auto authenticated = fixture.auth.authenticate_session(
+        logged_in.value().session.id());
+
+    ASSERT_TRUE(authenticated.ok());
+    EXPECT_EQ(authenticated.value().id(), logged_in.value().session.id());
+    EXPECT_FALSE(authenticated.value().revoked());
+  }
+
+  TEST(AuthTests, AuthenticateSessionRejectsEmptySessionId)
+  {
+    AuthFixture fixture;
+
+    const auto authenticated = fixture.auth.authenticate_session("");
+
+    ASSERT_TRUE(authenticated.failed());
+    EXPECT_EQ(authenticated.error().code(), AuthErrorCode::InvalidSession);
+  }
+
+  TEST(AuthTests, AuthenticateSessionRejectsMissingSession)
+  {
+    AuthFixture fixture;
+
+    const auto authenticated = fixture.auth.authenticate_session("missing");
+
+    ASSERT_TRUE(authenticated.failed());
+    EXPECT_EQ(authenticated.error().code(), AuthErrorCode::InvalidSession);
+  }
+
+  TEST(AuthTests, AuthenticateSessionRejectsRevokedSession)
+  {
+    AuthFixture fixture;
+
+    ASSERT_TRUE(fixture.auth.register_user(
+                                RegisterRequest{
+                                    "ada@example.com",
+                                    "correct-password"})
+                    .ok());
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(logged_in.ok());
+
+    ASSERT_TRUE(fixture.auth.logout(logged_in.value().session.id()).ok());
+
+    const auto authenticated = fixture.auth.authenticate_session(
+        logged_in.value().session.id());
+
+    ASSERT_TRUE(authenticated.failed());
+    EXPECT_EQ(authenticated.error().code(), AuthErrorCode::InvalidSession);
+  }
+
+  TEST(AuthTests, AuthenticateSessionRejectsExpiredSession)
+  {
+    MemoryUserStore users;
+    MemorySessionStore sessions;
+
+    AuthConfig config = test_config();
+    config.set_session_ttl_seconds(-1);
+
+    Auth auth{users, sessions, config};
+
+    ASSERT_TRUE(auth.register_user(
+                        RegisterRequest{
+                            "ada@example.com",
+                            "correct-password"})
+                    .ok());
+
+    const auto logged_in = auth.login(
+        LoginRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(logged_in.ok());
 
     const auto authenticated = auth.authenticate_session(
         logged_in.value().session.id());
 
-    assert(registered.ok());
-    assert(logged_in.ok());
-    assert(authenticated.ok());
-    assert(authenticated.value().id() == logged_in.value().session.id());
+    ASSERT_TRUE(authenticated.failed());
+    EXPECT_EQ(authenticated.error().code(), AuthErrorCode::SessionExpired);
   }
 
-  void test_logout_revokes_session()
+  TEST(AuthTests, LogoutRevokesSession)
+  {
+    AuthFixture fixture;
+
+    ASSERT_TRUE(fixture.auth.register_user(
+                                RegisterRequest{
+                                    "ada@example.com",
+                                    "correct-password"})
+                    .ok());
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(logged_in.ok());
+
+    const auto status = fixture.auth.logout(
+        logged_in.value().session.id());
+
+    ASSERT_TRUE(status.ok());
+
+    const auto stored = fixture.sessions.find_by_id(
+        logged_in.value().session.id());
+
+    ASSERT_TRUE(stored.ok());
+    ASSERT_TRUE(stored.value().has_value());
+    EXPECT_TRUE(stored.value()->revoked());
+  }
+
+  TEST(AuthTests, LogoutRejectsEmptySessionId)
+  {
+    AuthFixture fixture;
+
+    const auto status = fixture.auth.logout("");
+
+    ASSERT_TRUE(status.failed());
+    EXPECT_EQ(status.error().code(), AuthErrorCode::InvalidSession);
+  }
+
+  TEST(AuthTests, LogoutUserRevokesAllUserSessions)
+  {
+    AuthFixture fixture;
+
+    const auto registered = fixture.auth.register_user(
+        RegisterRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(registered.ok());
+
+    const auto first = fixture.auth.login(
+        LoginRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    const auto second = fixture.auth.login(
+        LoginRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(first.ok());
+    ASSERT_TRUE(second.ok());
+
+    const auto status = fixture.auth.logout_user(registered.value().id());
+
+    ASSERT_TRUE(status.ok());
+
+    const auto sessions = fixture.sessions.find_by_user_id(
+        registered.value().id());
+
+    ASSERT_TRUE(sessions.ok());
+    ASSERT_EQ(sessions.value().size(), 2);
+
+    for (const auto &session : sessions.value())
+    {
+      EXPECT_TRUE(session.revoked());
+    }
+  }
+
+  TEST(AuthTests, LogoutUserRejectsEmptyUserId)
+  {
+    AuthFixture fixture;
+
+    const auto status = fixture.auth.logout_user("");
+
+    ASSERT_TRUE(status.failed());
+    EXPECT_EQ(status.error().code(), AuthErrorCode::InvalidInput);
+  }
+
+  TEST(AuthTests, RefreshSessionExtendsExpiration)
+  {
+    AuthFixture fixture;
+
+    ASSERT_TRUE(fixture.auth.register_user(
+                                RegisterRequest{
+                                    "ada@example.com",
+                                    "correct-password"})
+                    .ok());
+
+    const auto logged_in = fixture.auth.login(
+        LoginRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    ASSERT_TRUE(logged_in.ok());
+
+    const auto refreshed = fixture.auth.refresh_session(
+        logged_in.value().session.id());
+
+    ASSERT_TRUE(refreshed.ok());
+
+    EXPECT_EQ(refreshed.value().id(), logged_in.value().session.id());
+    EXPECT_GE(refreshed.value().expires_at(),
+              logged_in.value().session.expires_at());
+    EXPECT_GE(refreshed.value().last_seen_at(),
+              logged_in.value().session.last_seen_at());
+  }
+
+  TEST(AuthTests, RefreshSessionRejectsMissingSession)
+  {
+    AuthFixture fixture;
+
+    const auto refreshed = fixture.auth.refresh_session("missing");
+
+    ASSERT_TRUE(refreshed.failed());
+    EXPECT_EQ(refreshed.error().code(), AuthErrorCode::InvalidSession);
+  }
+
+  TEST(AuthTests, IssueTokenCreatesUsableToken)
+  {
+    AuthFixture fixture;
+
+    const auto token = fixture.auth.issue_token("user_1");
+
+    ASSERT_TRUE(token.ok());
+
+    EXPECT_TRUE(token.value().valid());
+    EXPECT_FALSE(token.value().value().empty());
+    EXPECT_EQ(token.value().user_id(), "user_1");
+    EXPECT_EQ(token.value().issuer(), "rix/auth/tests");
+    EXPECT_FALSE(token.value().revoked());
+    EXPECT_GT(token.value().issued_at(), 0);
+    EXPECT_GT(token.value().expires_at(), token.value().issued_at());
+  }
+
+  TEST(AuthTests, IssueTokenRejectsEmptyUserId)
+  {
+    AuthFixture fixture;
+
+    const auto token = fixture.auth.issue_token("");
+
+    ASSERT_TRUE(token.failed());
+    EXPECT_EQ(token.error().code(), AuthErrorCode::InvalidInput);
+  }
+
+  TEST(AuthTests, ConfigReturnsConfiguredValues)
+  {
+    AuthFixture fixture;
+
+    EXPECT_EQ(fixture.auth.config().min_password_length(), 8);
+    EXPECT_EQ(fixture.auth.config().session_ttl_seconds(), 3600);
+    EXPECT_EQ(fixture.auth.config().token_ttl_seconds(), 600);
+    EXPECT_EQ(fixture.auth.config().issuer(), "rix/auth/tests");
+    EXPECT_FALSE(fixture.auth.config().require_email_verification());
+    EXPECT_TRUE(fixture.auth.config().rotate_sessions());
+  }
+
+  TEST(AuthTests, PasswordHasherUsesAuthConfiguration)
   {
     MemoryUserStore users;
     MemorySessionStore sessions;
-    rixlib::auth::Auth auth{users, sessions};
 
-    const auto registered = auth.register_user(
-        rixlib::auth::RegisterRequest{
-            "ada@example.com",
-            "secret123"});
+    AuthConfig config = test_config();
+    config.set_min_password_length(16);
 
-    const auto logged_in = auth.login(
-        rixlib::auth::LoginRequest{
-            "ada@example.com",
-            "secret123"});
+    Auth auth{users, sessions, config};
 
-    const auto logout = auth.logout(logged_in.value().session.id());
-    const auto authenticated = auth.authenticate_session(
-        logged_in.value().session.id());
-
-    assert(registered.ok());
-    assert(logged_in.ok());
-    assert(logout.ok());
-    assert(authenticated.failed());
-    assert(authenticated.error().code() == rixlib::auth::AuthErrorCode::InvalidSession);
+    EXPECT_FALSE(auth.password_hasher().accepts("short-password"));
+    EXPECT_TRUE(auth.password_hasher().accepts("very-strong-password"));
   }
 } // namespace
-
-int main()
-{
-  test_register_user_creates_user();
-  test_register_user_rejects_invalid_email();
-  test_register_user_rejects_short_password();
-  test_register_user_rejects_duplicate_email();
-  test_login_creates_session();
-  test_login_rejects_wrong_password();
-  test_authenticate_session_returns_session();
-  test_logout_revokes_session();
-
-  return 0;
-}

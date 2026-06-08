@@ -1,69 +1,48 @@
-add_executable(rix_auth_user_tests
+find_package(GTest QUIET)
+
+if(NOT GTest_FOUND)
+  include(FetchContent)
+
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+  )
+
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+
+  FetchContent_MakeAvailable(googletest)
+endif()
+
+add_executable(rix_auth_tests
   UserTests.cpp
-)
-
-target_link_libraries(rix_auth_user_tests
-  PRIVATE
-    rix::auth
-)
-
-add_test(
-  NAME rix_auth_user_tests
-  COMMAND rix_auth_user_tests
-)
-
-add_executable(rix_auth_session_tests
   SessionTests.cpp
-)
-
-target_link_libraries(rix_auth_session_tests
-  PRIVATE
-    rix::auth
-)
-
-add_test(
-  NAME rix_auth_session_tests
-  COMMAND rix_auth_session_tests
-)
-
-add_executable(rix_auth_token_tests
   TokenTests.cpp
-)
-
-target_link_libraries(rix_auth_token_tests
-  PRIVATE
-    rix::auth
-)
-
-add_test(
-  NAME rix_auth_token_tests
-  COMMAND rix_auth_token_tests
-)
-
-add_executable(rix_auth_password_hasher_tests
   PasswordHasherTests.cpp
-)
-
-target_link_libraries(rix_auth_password_hasher_tests
-  PRIVATE
-    rix::auth
-)
-
-add_test(
-  NAME rix_auth_password_hasher_tests
-  COMMAND rix_auth_password_hasher_tests
-)
-
-add_executable(rix_auth_auth_tests
+  MemoryUserStoreTests.cpp
+  MemorySessionStoreTests.cpp
   AuthTests.cpp
 )
 
-target_link_libraries(rix_auth_auth_tests
+target_compile_features(rix_auth_tests
   PRIVATE
-    rix::auth
+    cxx_std_20
 )
 
-add_test(
-  NAME rix_auth_auth_tests
-  COMMAND rix_auth_auth_tests
+target_link_libraries(rix_auth_tests
+  PRIVATE
+    rix::auth
+    GTest::gtest_main
 )
+
+if(NOT MSVC)
+  target_compile_options(rix_auth_tests
+    PRIVATE
+      -Wall
+      -Wextra
+      -Wpedantic
+  )
+endif()
+
+include(GoogleTest)
+
+gtest_discover_tests(rix_auth_tests)

@@ -16,140 +16,200 @@
 
 #include <rix/auth/Session.hpp>
 
-#include <cassert>
-#include <cstdint>
+#include <gtest/gtest.h>
 
 namespace
 {
-  void test_default_session_is_invalid()
-  {
-    const rixlib::auth::Session session;
+  using rixlib::auth::Session;
 
-    assert(session.id().empty());
-    assert(session.user_id().empty());
-    assert(session.created_at() == 0);
-    assert(session.expires_at() == 0);
-    assert(session.last_seen_at() == 0);
-    assert(!session.revoked());
-    assert(!session.valid());
+  TEST(SessionTests, DefaultSessionIsInvalid)
+  {
+    const Session session;
+
+    EXPECT_TRUE(session.id().empty());
+    EXPECT_TRUE(session.user_id().empty());
+    EXPECT_EQ(session.created_at(), 0);
+    EXPECT_EQ(session.expires_at(), 0);
+    EXPECT_EQ(session.last_seen_at(), 0);
+    EXPECT_FALSE(session.revoked());
+    EXPECT_FALSE(session.valid());
   }
 
-  void test_constructed_session_has_expected_values()
+  TEST(SessionTests, ConstructedSessionStoresFields)
   {
-    const std::int64_t created_at = 1000;
-    const std::int64_t expires_at = 2000;
-
-    const rixlib::auth::Session session{
+    const Session session{
         "session_1",
         "user_1",
-        created_at,
-        expires_at};
+        1000,
+        2000};
 
-    assert(session.id() == "session_1");
-    assert(session.user_id() == "user_1");
-    assert(session.created_at() == created_at);
-    assert(session.expires_at() == expires_at);
-    assert(session.last_seen_at() == created_at);
-    assert(!session.revoked());
-    assert(session.valid());
+    EXPECT_EQ(session.id(), "session_1");
+    EXPECT_EQ(session.user_id(), "user_1");
+    EXPECT_EQ(session.created_at(), 1000);
+    EXPECT_EQ(session.expires_at(), 2000);
+    EXPECT_EQ(session.last_seen_at(), 1000);
+    EXPECT_FALSE(session.revoked());
+    EXPECT_TRUE(session.valid());
   }
 
-  void test_session_setters_update_values()
+  TEST(SessionTests, SettersUpdateSessionFields)
   {
-    rixlib::auth::Session session;
+    Session session;
 
     session.set_id("session_2");
     session.set_user_id("user_2");
-    session.set_created_at(3000);
-    session.set_expires_at(4000);
-    session.set_last_seen_at(3500);
+    session.set_created_at(100);
+    session.set_expires_at(200);
+    session.set_last_seen_at(150);
     session.set_revoked(true);
 
-    assert(session.id() == "session_2");
-    assert(session.user_id() == "user_2");
-    assert(session.created_at() == 3000);
-    assert(session.expires_at() == 4000);
-    assert(session.last_seen_at() == 3500);
-    assert(session.revoked());
-    assert(session.valid());
+    EXPECT_EQ(session.id(), "session_2");
+    EXPECT_EQ(session.user_id(), "user_2");
+    EXPECT_EQ(session.created_at(), 100);
+    EXPECT_EQ(session.expires_at(), 200);
+    EXPECT_EQ(session.last_seen_at(), 150);
+    EXPECT_TRUE(session.revoked());
+    EXPECT_TRUE(session.valid());
   }
 
-  void test_belongs_to_checks_user_id()
+  TEST(SessionTests, BelongsToReturnsTrueOnlyForMatchingUser)
   {
-    rixlib::auth::Session session;
-    session.set_user_id("user_3");
+    const Session session{
+        "session_3",
+        "user_3",
+        1000,
+        2000};
 
-    assert(session.belongs_to("user_3"));
-    assert(!session.belongs_to("user_4"));
-    assert(!session.belongs_to(""));
+    EXPECT_TRUE(session.belongs_to("user_3"));
+    EXPECT_FALSE(session.belongs_to("user_4"));
+    EXPECT_FALSE(session.belongs_to(""));
   }
 
-  void test_session_requires_id_and_user_id_to_be_valid()
+  TEST(SessionTests, ExpiredReturnsFalseBeforeExpiration)
   {
-    rixlib::auth::Session session;
-
-    assert(!session.valid());
-
-    session.set_id("session_3");
-    assert(!session.valid());
-
-    session.set_user_id("user_3");
-    assert(session.valid());
-
-    session.set_id("");
-    assert(!session.valid());
-  }
-
-  void test_expired_returns_true_after_expiration()
-  {
-    rixlib::auth::Session session;
-    session.set_expires_at(1000);
-
-    assert(!session.expired(999));
-    assert(session.expired(1000));
-    assert(session.expired(1001));
-  }
-
-  void test_zero_expiration_means_not_expired()
-  {
-    rixlib::auth::Session session;
-    session.set_expires_at(0);
-
-    assert(!session.expired(0));
-    assert(!session.expired(1000));
-  }
-
-  void test_usable_requires_valid_not_revoked_and_not_expired()
-  {
-    rixlib::auth::Session session{
+    const Session session{
         "session_4",
         "user_4",
         1000,
         2000};
 
-    assert(session.usable(1500));
+    EXPECT_FALSE(session.expired(1000));
+    EXPECT_FALSE(session.expired(1999));
+  }
+
+  TEST(SessionTests, ExpiredReturnsTrueAtAndAfterExpiration)
+  {
+    const Session session{
+        "session_5",
+        "user_5",
+        1000,
+        2000};
+
+    EXPECT_TRUE(session.expired(2000));
+    EXPECT_TRUE(session.expired(2001));
+  }
+
+  TEST(SessionTests, ZeroExpirationDoesNotExpire)
+  {
+    const Session session{
+        "session_6",
+        "user_6",
+        1000,
+        0};
+
+    EXPECT_FALSE(session.expired(1000));
+    EXPECT_FALSE(session.expired(999999));
+  }
+
+  TEST(SessionTests, UsableRequiresValidNotRevokedAndNotExpired)
+  {
+    Session session{
+        "session_7",
+        "user_7",
+        1000,
+        2000};
+
+    EXPECT_TRUE(session.usable(1500));
 
     session.set_revoked(true);
-    assert(!session.usable(1500));
+
+    EXPECT_FALSE(session.usable(1500));
 
     session.set_revoked(false);
-    assert(!session.usable(2000));
 
-    session.set_id("");
-    assert(!session.usable(1500));
+    EXPECT_FALSE(session.usable(2000));
+  }
+
+  TEST(SessionTests, RevokeMarksSessionAsRevoked)
+  {
+    Session session{
+        "session_8",
+        "user_8",
+        1000,
+        2000};
+
+    EXPECT_FALSE(session.revoked());
+
+    session.revoke();
+
+    EXPECT_TRUE(session.revoked());
+    EXPECT_FALSE(session.usable(1500));
+  }
+
+  TEST(SessionTests, RefreshUpdatesExpirationAndLastSeen)
+  {
+    Session session{
+        "session_9",
+        "user_9",
+        1000,
+        2000};
+
+    session.refresh(1500, 3600);
+
+    EXPECT_EQ(session.last_seen_at(), 1500);
+    EXPECT_EQ(session.expires_at(), 5100);
+    EXPECT_TRUE(session.usable(5000));
+    EXPECT_FALSE(session.usable(5100));
+  }
+
+  TEST(SessionTests, RefreshableRequiresValidNotRevokedAndNotExpired)
+  {
+    Session session{
+        "session_10",
+        "user_10",
+        1000,
+        2000};
+
+    EXPECT_TRUE(session.refreshable(1500));
+
+    session.set_revoked(true);
+
+    EXPECT_FALSE(session.refreshable(1500));
+
+    session.set_revoked(false);
+
+    EXPECT_FALSE(session.refreshable(2000));
+  }
+
+  TEST(SessionTests, MissingIdMakesSessionInvalid)
+  {
+    const Session session{
+        "",
+        "user_11",
+        1000,
+        2000};
+
+    EXPECT_FALSE(session.valid());
+  }
+
+  TEST(SessionTests, MissingUserIdMakesSessionInvalid)
+  {
+    const Session session{
+        "session_11",
+        "",
+        1000,
+        2000};
+
+    EXPECT_FALSE(session.valid());
   }
 } // namespace
-
-int main()
-{
-  test_default_session_is_invalid();
-  test_constructed_session_has_expected_values();
-  test_session_setters_update_values();
-  test_belongs_to_checks_user_id();
-  test_session_requires_id_and_user_id_to_be_valid();
-  test_expired_returns_true_after_expiration();
-  test_zero_expiration_means_not_expired();
-  test_usable_requires_valid_not_revoked_and_not_expired();
-
-  return 0;
-}

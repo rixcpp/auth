@@ -16,31 +16,60 @@
 
 #include <rix/auth/Auth.hpp>
 
-#include <chrono>
-#include <cstddef>
-#include <random>
-#include <sstream>
+#include <vix/crypto/hex.hpp>
+#include <vix/crypto/random.hpp>
+#include <vix/time/Clock.hpp>
+#include <vix/validation/Validate.hpp>
+
+#include <array>
+#include <cstdint>
+#include <string>
 #include <utility>
 
 namespace rixlib::auth
 {
   namespace
   {
-    [[nodiscard]] std::string make_random_id(std::string_view prefix)
+    [[nodiscard]] AuthError invalid_email_error()
     {
-      static thread_local std::mt19937_64 engine{
-          std::random_device{}()};
+      return make_auth_error(
+          AuthErrorCode::InvalidEmail,
+          "Email address is invalid.");
+    }
 
-      const auto now = std::chrono::system_clock::now()
-                           .time_since_epoch()
-                           .count();
+    [[nodiscard]] AuthError invalid_password_error(std::string message)
+    {
+      return make_auth_error(
+          AuthErrorCode::InvalidPassword,
+          std::move(message));
+    }
 
-      const auto value = engine();
+    [[nodiscard]] AuthError invalid_credentials_error()
+    {
+      return make_auth_error(
+          AuthErrorCode::InvalidCredentials,
+          "Invalid email or password.");
+    }
 
-      std::ostringstream stream;
-      stream << prefix << "_" << now << "_" << value;
+    [[nodiscard]] AuthError invalid_session_error(std::string message)
+    {
+      return make_auth_error(
+          AuthErrorCode::InvalidSession,
+          std::move(message));
+    }
 
-      return stream.str();
+    [[nodiscard]] AuthError invalid_state_error(std::string message)
+    {
+      return make_auth_error(
+          AuthErrorCode::InvalidState,
+          std::move(message));
+    }
+
+    [[nodiscard]] AuthError crypto_error(std::string message)
+    {
+      return make_auth_error(
+          AuthErrorCode::CryptoError,
+          std::move(message));
     }
   } // namespace
 
@@ -52,20 +81,22 @@ namespace rixlib::auth
   Auth::Auth(UserStore &users, SessionStore &sessions, AuthConfig config)
       : users_(&users),
         sessions_(&sessions),
-        config_(std::move(config))
+        config_(std::move(config)),
+        password_hasher_(config_)
   {
-    password_hasher_.set_min_password_length(config_.min_password_length());
   }
 
   AuthResult<User> Auth::register_user(const RegisterRequest &request)
   {
     const auto validation = validate_register_request(request);
+
     if (validation.failed())
     {
       return AuthResult<User>::failure(validation.error());
     }
 
     auto exists = users_->exists_by_email(request.email);
+
     if (exists.failed())
     {
       return AuthResult<User>::failure(exists.error());
@@ -74,31 +105,42 @@ namespace rixlib::auth
     if (exists.value())
     {
       return AuthResult<User>::failure(
-          make_auth_error(AuthErrorCode::UserAlreadyExists,
-                          "A user already exists with this email address."));
+          make_auth_error(
+              AuthErrorCode::UserAlreadyExists,
+              "A user already exists with this email address."));
+    }
+
+    auto user_id = make_user_id();
+
+    if (user_id.failed())
+    {
+      return AuthResult<User>::failure(user_id.error());
     }
 
     auto password_hash = password_hasher_.hash(request.password);
+
     if (password_hash.failed())
     {
       return AuthResult<User>::failure(password_hash.error());
     }
 
-    const auto created_at = now_seconds();
+    const auto now = now_seconds();
 
     User user{
-        make_user_id(),
+        user_id.value(),
         request.email,
         password_hash.value(),
-        created_at};
+        now};
 
-    user.set_email_verified(!config_.require_email_verification());
+    user.set_updated_at(now);
     user.set_active(true);
+    user.set_email_verified(!config_.require_email_verification());
 
-    auto status = users_->create(user);
-    if (status.failed())
+    auto created = users_->create(user);
+
+    if (created.failed())
     {
-      return AuthResult<User>::failure(status.error());
+      return AuthResult<User>::failure(created.error());
     }
 
     return AuthResult<User>::success(std::move(user));
@@ -107,12 +149,14 @@ namespace rixlib::auth
   AuthResult<LoginResult> Auth::login(const LoginRequest &request)
   {
     const auto validation = validate_login_request(request);
+
     if (validation.failed())
     {
       return AuthResult<LoginResult>::failure(validation.error());
     }
 
     auto found = users_->find_by_email(request.email);
+
     if (found.failed())
     {
       return AuthResult<LoginResult>::failure(found.error());
@@ -120,51 +164,60 @@ namespace rixlib::auth
 
     if (!found.value().has_value())
     {
-      return AuthResult<LoginResult>::failure(
-          make_auth_error(AuthErrorCode::InvalidCredentials,
-                          "Invalid email or password."));
+      return AuthResult<LoginResult>::failure(invalid_credentials_error());
     }
 
     User user = found.value().value();
 
     if (!user.active())
     {
-      return AuthResult<LoginResult>::failure(
-          make_auth_error(AuthErrorCode::InvalidCredentials,
-                          "Invalid email or password."));
+      return AuthResult<LoginResult>::failure(invalid_credentials_error());
     }
 
     if (config_.require_email_verification() && !user.email_verified())
     {
       return AuthResult<LoginResult>::failure(
-          make_auth_error(AuthErrorCode::InvalidState,
-                          "Email verification is required before login."));
+          invalid_state_error("Email verification is required before login."));
     }
 
     if (!password_hasher_.verify(request.password, user.password_hash()))
     {
-      return AuthResult<LoginResult>::failure(
-          make_auth_error(AuthErrorCode::InvalidCredentials,
-                          "Invalid email or password."));
+      return AuthResult<LoginResult>::failure(invalid_credentials_error());
+    }
+
+    auto session_id = make_session_id();
+
+    if (session_id.failed())
+    {
+      return AuthResult<LoginResult>::failure(session_id.error());
     }
 
     const auto now = now_seconds();
 
     Session session{
-        make_session_id(),
+        session_id.value(),
         user.id(),
         now,
         now + config_.session_ttl_seconds()};
 
-    auto status = sessions_->create(session);
-    if (status.failed())
+    auto created = sessions_->create(session);
+
+    if (created.failed())
     {
-      return AuthResult<LoginResult>::failure(status.error());
+      return AuthResult<LoginResult>::failure(created.error());
+    }
+
+    auto token = issue_token(user.id());
+
+    if (token.failed())
+    {
+      return AuthResult<LoginResult>::failure(token.error());
     }
 
     LoginResult result{
         std::move(user),
-        std::move(session)};
+        std::move(session),
+        token.value()};
 
     return AuthResult<LoginResult>::success(std::move(result));
   }
@@ -174,11 +227,23 @@ namespace rixlib::auth
     if (session_id.empty())
     {
       return AuthStatus::failure(
-          make_auth_error(AuthErrorCode::InvalidSession,
-                          "Session id cannot be empty."));
+          invalid_session_error("Session id cannot be empty."));
     }
 
     return sessions_->revoke_by_id(session_id);
+  }
+
+  AuthStatus Auth::logout_user(std::string_view user_id)
+  {
+    if (user_id.empty())
+    {
+      return AuthStatus::failure(
+          make_auth_error(
+              AuthErrorCode::InvalidInput,
+              "User id cannot be empty."));
+    }
+
+    return sessions_->revoke_by_user_id(user_id);
   }
 
   AuthResult<Session> Auth::authenticate_session(std::string_view session_id)
@@ -186,11 +251,11 @@ namespace rixlib::auth
     if (session_id.empty())
     {
       return AuthResult<Session>::failure(
-          make_auth_error(AuthErrorCode::InvalidSession,
-                          "Session id cannot be empty."));
+          invalid_session_error("Session id cannot be empty."));
     }
 
     auto found = sessions_->find_by_id(session_id);
+
     if (found.failed())
     {
       return AuthResult<Session>::failure(found.error());
@@ -199,35 +264,94 @@ namespace rixlib::auth
     if (!found.value().has_value())
     {
       return AuthResult<Session>::failure(
-          make_auth_error(AuthErrorCode::InvalidSession,
-                          "Session not found."));
+          invalid_session_error("Session not found."));
     }
 
     Session session = found.value().value();
 
+    const auto now = now_seconds();
+
     if (session.revoked())
     {
       return AuthResult<Session>::failure(
-          make_auth_error(AuthErrorCode::InvalidSession,
-                          "Session has been revoked."));
+          invalid_session_error("Session has been revoked."));
     }
 
-    if (session.expired(now_seconds()))
+    if (session.expired(now))
     {
       return AuthResult<Session>::failure(
-          make_auth_error(AuthErrorCode::SessionExpired,
-                          "Session has expired."));
+          make_auth_error(
+              AuthErrorCode::SessionExpired,
+              "Session has expired."));
     }
 
-    session.set_last_seen_at(now_seconds());
+    session.set_last_seen_at(now);
 
-    auto status = sessions_->update(session);
-    if (status.failed())
+    auto updated = sessions_->update(session);
+
+    if (updated.failed())
     {
-      return AuthResult<Session>::failure(status.error());
+      return AuthResult<Session>::failure(updated.error());
     }
 
     return AuthResult<Session>::success(std::move(session));
+  }
+
+  AuthResult<Session> Auth::refresh_session(std::string_view session_id)
+  {
+    auto authenticated = authenticate_session(session_id);
+
+    if (authenticated.failed())
+    {
+      return authenticated;
+    }
+
+    Session session = authenticated.value();
+
+    const auto now = now_seconds();
+
+    if (!session.refreshable(now))
+    {
+      return AuthResult<Session>::failure(
+          invalid_session_error("Session cannot be refreshed."));
+    }
+
+    session.refresh(now, config_.session_ttl_seconds());
+
+    auto updated = sessions_->update(session);
+
+    if (updated.failed())
+    {
+      return AuthResult<Session>::failure(updated.error());
+    }
+
+    return AuthResult<Session>::success(std::move(session));
+  }
+
+  AuthResult<Token> Auth::issue_token(std::string_view user_id)
+  {
+    if (user_id.empty())
+    {
+      return AuthResult<Token>::failure(
+          make_auth_error(
+              AuthErrorCode::InvalidInput,
+              "User id cannot be empty."));
+    }
+
+    auto token_value = make_token_value();
+
+    if (token_value.failed())
+    {
+      return AuthResult<Token>::failure(token_value.error());
+    }
+
+    const auto now = now_seconds();
+
+    return AuthResult<Token>::success(
+        make_token_for_user(
+            std::string(user_id),
+            now,
+            token_value.value()));
   }
 
   const AuthConfig &Auth::config() const noexcept
@@ -243,18 +367,18 @@ namespace rixlib::auth
   AuthStatus Auth::validate_register_request(
       const RegisterRequest &request) const
   {
-    if (!is_valid_email(request.email))
+    const auto email = validate_email(request.email);
+
+    if (email.failed())
     {
-      return AuthStatus::failure(
-          make_auth_error(AuthErrorCode::InvalidEmail,
-                          "Email address is invalid."));
+      return email;
     }
 
-    if (!password_hasher_.accepts(request.password))
+    const auto password = validate_password_for_register(request.password);
+
+    if (password.failed())
     {
-      return AuthStatus::failure(
-          make_auth_error(AuthErrorCode::InvalidPassword,
-                          "Password does not satisfy the minimum length policy."));
+      return password;
     }
 
     return AuthStatus::success();
@@ -263,51 +387,111 @@ namespace rixlib::auth
   AuthStatus Auth::validate_login_request(
       const LoginRequest &request) const
   {
-    if (!is_valid_email(request.email))
+    const auto email = validate_email(request.email);
+
+    if (email.failed())
     {
-      return AuthStatus::failure(
-          make_auth_error(AuthErrorCode::InvalidEmail,
-                          "Email address is invalid."));
+      return email;
     }
 
     if (request.password.empty())
     {
       return AuthStatus::failure(
-          make_auth_error(AuthErrorCode::InvalidPassword,
-                          "Password cannot be empty."));
+          invalid_password_error("Password cannot be empty."));
     }
 
     return AuthStatus::success();
   }
 
-  bool Auth::is_valid_email(std::string_view email) const noexcept
+  AuthStatus Auth::validate_email(std::string_view email) const
   {
-    const auto at = email.find('@');
-    if (at == std::string_view::npos || at == 0 || at + 1 >= email.size())
+    const std::string value(email);
+
+    const auto result = vix::validation::validate("email", value)
+                            .required("Email address is required.")
+                            .email("Email address is invalid.")
+                            .length_max(320, "Email address is too long.")
+                            .result();
+
+    if (!result.ok())
     {
-      return false;
+      return AuthStatus::failure(invalid_email_error());
     }
 
-    const auto dot = email.find('.', at + 1);
-    return dot != std::string_view::npos && dot + 1 < email.size();
+    return AuthStatus::success();
   }
 
-  std::string Auth::make_user_id() const
+  AuthStatus Auth::validate_password_for_register(
+      std::string_view password) const
   {
-    return make_random_id("user");
-  }
+    if (password.empty())
+    {
+      return AuthStatus::failure(
+          invalid_password_error("Password cannot be empty."));
+    }
 
-  std::string Auth::make_session_id() const
-  {
-    return make_random_id("session");
+    if (!password_hasher_.accepts(password))
+    {
+      return AuthStatus::failure(
+          invalid_password_error(
+              "Password does not satisfy the configured password policy."));
+    }
+
+    return AuthStatus::success();
   }
 
   std::int64_t Auth::now_seconds() const noexcept
   {
-    const auto now = std::chrono::system_clock::now();
-    const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(
-        now.time_since_epoch());
+    return vix::time::SystemClock::now().seconds_since_epoch();
+  }
 
-    return seconds.count();
+  AuthResult<std::string> Auth::make_user_id() const
+  {
+    return make_secure_id("user");
+  }
+
+  AuthResult<std::string> Auth::make_session_id() const
+  {
+    return make_secure_id("session");
+  }
+
+  AuthResult<std::string> Auth::make_token_value() const
+  {
+    return make_secure_id("token");
+  }
+
+  AuthResult<std::string> Auth::make_secure_id(std::string_view prefix) const
+  {
+    std::array<std::uint8_t, 32> bytes{};
+
+    auto random = vix::crypto::random_bytes(bytes);
+
+    if (!random.ok())
+    {
+      return AuthResult<std::string>::failure(
+          crypto_error(std::string(random.error().message)));
+    }
+
+    std::string out(prefix);
+    out.push_back('_');
+    out += vix::crypto::hex_lower(bytes);
+
+    return AuthResult<std::string>::success(std::move(out));
+  }
+
+  Token Auth::make_token_for_user(
+      std::string user_id,
+      std::int64_t now,
+      std::string value) const
+  {
+    Token token{
+        std::move(value),
+        std::move(user_id),
+        now,
+        now + config_.token_ttl_seconds()};
+
+    token.set_issuer(config_.issuer());
+
+    return token;
   }
 } // namespace rixlib::auth

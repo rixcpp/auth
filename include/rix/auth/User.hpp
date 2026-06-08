@@ -12,8 +12,6 @@
  *
  *  Rix
  *
- *  User model for rix/auth.
- *
  */
 
 #ifndef RIXCPP_AUTH_INCLUDE_RIX_AUTH_USER_HPP_INCLUDED
@@ -26,14 +24,12 @@
 namespace rixlib::auth
 {
   /**
-   * @brief Represents an authenticated application user.
+   * @brief Authentication user model.
    *
-   * User is a simple value object used by rix/auth to represent the identity
-   * stored in the user store.
+   * User is the persistent identity model used by rix/auth.
+   * It stores identity fields, password hash, account state, and timestamps.
    *
-   * It intentionally does not expose password hashes through public setters
-   * used by application code. The authentication service is responsible for
-   * creating and verifying password hashes.
+   * The password hash must never be sent to clients or written to logs.
    */
   class User
   {
@@ -87,8 +83,6 @@ namespace rixlib::auth
     /**
      * @brief Return the stored password hash.
      *
-     * This value must never be sent to clients or logs.
-     *
      * @return Stored password hash.
      */
     [[nodiscard]] const std::string &password_hash() const noexcept;
@@ -96,91 +90,122 @@ namespace rixlib::auth
     /**
      * @brief Set the stored password hash.
      *
-     * This function is intended for internal auth/store code.
+     * This should be used only by auth/store code.
      *
      * @param value Stored password hash.
      */
     void set_password_hash(std::string value);
 
     /**
-     * @brief Return whether the user email address has been verified.
+     * @brief Return whether the user email has been verified.
      *
      * @return true if the email is verified.
      */
     [[nodiscard]] bool email_verified() const noexcept;
 
     /**
-     * @brief Set whether the user email address has been verified.
+     * @brief Set whether the user email has been verified.
      *
-     * @param value true when the email is verified.
+     * @param value true when verified.
      */
     void set_email_verified(bool value) noexcept;
 
     /**
-     * @brief Return whether the user is active.
-     *
-     * Inactive users cannot authenticate.
+     * @brief Return whether the user account is active.
      *
      * @return true if the user is active.
      */
     [[nodiscard]] bool active() const noexcept;
 
     /**
-     * @brief Set whether the user is active.
+     * @brief Set whether the user account is active.
      *
-     * @param value true when the user is active.
+     * @param value true when active.
      */
     void set_active(bool value) noexcept;
 
     /**
-     * @brief Return the user creation timestamp.
+     * @brief Return user creation timestamp.
      *
      * @return Unix timestamp in seconds.
      */
     [[nodiscard]] std::int64_t created_at() const noexcept;
 
     /**
-     * @brief Set the user creation timestamp.
+     * @brief Set user creation timestamp.
      *
      * @param value Unix timestamp in seconds.
      */
     void set_created_at(std::int64_t value) noexcept;
 
     /**
-     * @brief Return the last update timestamp.
+     * @brief Return last update timestamp.
      *
      * @return Unix timestamp in seconds.
      */
     [[nodiscard]] std::int64_t updated_at() const noexcept;
 
     /**
-     * @brief Set the last update timestamp.
+     * @brief Set last update timestamp.
      *
      * @param value Unix timestamp in seconds.
      */
     void set_updated_at(std::int64_t value) noexcept;
 
     /**
-     * @brief Return true when the user has a non-empty id and email.
+     * @brief Return true when the user has the minimum identity fields.
      *
-     * @return true if the user has the minimum required identity fields.
+     * @return true if id, email, and password hash are not empty.
      */
     [[nodiscard]] bool valid() const noexcept;
 
     /**
-     * @brief Return true when the given email matches this user.
+     * @brief Return true when the user has an id.
+     *
+     * @return true if id is not empty.
+     */
+    [[nodiscard]] bool has_id() const noexcept;
+
+    /**
+     * @brief Return true when the user has an email.
+     *
+     * @return true if email is not empty.
+     */
+    [[nodiscard]] bool has_email() const noexcept;
+
+    /**
+     * @brief Return true when the user email matches the given value.
      *
      * @param value Email address to compare.
-     * @return true if the email is identical.
+     * @return true if email matches.
      */
     [[nodiscard]] bool has_email(std::string_view value) const noexcept;
+
+    /**
+     * @brief Return true when the user id matches the given value.
+     *
+     * @param value User id to compare.
+     * @return true if id matches.
+     */
+    [[nodiscard]] bool has_id(std::string_view value) const noexcept;
+
+    /**
+     * @brief Return true when the user can authenticate.
+     *
+     * A user can authenticate when the model is valid and active.
+     *
+     * @return true if the user can authenticate.
+     */
+    [[nodiscard]] bool can_authenticate() const noexcept;
 
   private:
     std::string id_;
     std::string email_;
     std::string password_hash_;
+
     bool email_verified_ = false;
     bool active_ = true;
+
     std::int64_t created_at_ = 0;
     std::int64_t updated_at_ = 0;
   };

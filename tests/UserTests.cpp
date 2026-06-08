@@ -16,102 +16,120 @@
 
 #include <rix/auth/User.hpp>
 
-#include <cassert>
-#include <cstdint>
-#include <string>
+#include <gtest/gtest.h>
 
 namespace
 {
-  void test_default_user_is_invalid()
-  {
-    const rixlib::auth::User user;
+  using rixlib::auth::User;
 
-    assert(user.id().empty());
-    assert(user.email().empty());
-    assert(user.password_hash().empty());
-    assert(!user.email_verified());
-    assert(user.active());
-    assert(user.created_at() == 0);
-    assert(user.updated_at() == 0);
-    assert(!user.valid());
+  TEST(UserTests, DefaultUserIsInvalid)
+  {
+    const User user;
+
+    EXPECT_TRUE(user.id().empty());
+    EXPECT_TRUE(user.email().empty());
+    EXPECT_TRUE(user.password_hash().empty());
+    EXPECT_FALSE(user.email_verified());
+    EXPECT_TRUE(user.active());
+    EXPECT_EQ(user.created_at(), 0);
+    EXPECT_EQ(user.updated_at(), 0);
+    EXPECT_FALSE(user.valid());
   }
 
-  void test_constructed_user_has_expected_values()
+  TEST(UserTests, ConstructedUserStoresIdentityAndTimestamps)
   {
-    const std::int64_t created_at = 1000;
-
-    const rixlib::auth::User user{
+    const User user{
         "user_1",
         "ada@example.com",
-        "hashed-password",
-        created_at};
+        "encoded-password-hash",
+        1000};
 
-    assert(user.id() == "user_1");
-    assert(user.email() == "ada@example.com");
-    assert(user.password_hash() == "hashed-password");
-    assert(user.created_at() == created_at);
-    assert(user.updated_at() == created_at);
-    assert(user.active());
-    assert(!user.email_verified());
-    assert(user.valid());
+    EXPECT_EQ(user.id(), "user_1");
+    EXPECT_EQ(user.email(), "ada@example.com");
+    EXPECT_EQ(user.password_hash(), "encoded-password-hash");
+    EXPECT_EQ(user.created_at(), 1000);
+    EXPECT_EQ(user.updated_at(), 1000);
+    EXPECT_TRUE(user.valid());
   }
 
-  void test_user_setters_update_values()
+  TEST(UserTests, SettersUpdateUserFields)
   {
-    rixlib::auth::User user;
+    User user;
 
     user.set_id("user_2");
     user.set_email("grace@example.com");
-    user.set_password_hash("new-hash");
+    user.set_password_hash("hash");
     user.set_email_verified(true);
     user.set_active(false);
     user.set_created_at(2000);
     user.set_updated_at(3000);
 
-    assert(user.id() == "user_2");
-    assert(user.email() == "grace@example.com");
-    assert(user.password_hash() == "new-hash");
-    assert(user.email_verified());
-    assert(!user.active());
-    assert(user.created_at() == 2000);
-    assert(user.updated_at() == 3000);
-    assert(user.valid());
+    EXPECT_EQ(user.id(), "user_2");
+    EXPECT_EQ(user.email(), "grace@example.com");
+    EXPECT_EQ(user.password_hash(), "hash");
+    EXPECT_TRUE(user.email_verified());
+    EXPECT_FALSE(user.active());
+    EXPECT_EQ(user.created_at(), 2000);
+    EXPECT_EQ(user.updated_at(), 3000);
+    EXPECT_TRUE(user.valid());
   }
 
-  void test_has_email_checks_exact_email()
+  TEST(UserTests, HasIdReturnsTrueOnlyForMatchingId)
   {
-    rixlib::auth::User user;
-    user.set_email("user@example.com");
+    const User user{
+        "user_3",
+        "linus@example.com",
+        "hash",
+        1000};
 
-    assert(user.has_email("user@example.com"));
-    assert(!user.has_email("other@example.com"));
-    assert(!user.has_email(""));
+    EXPECT_TRUE(user.has_id("user_3"));
+    EXPECT_FALSE(user.has_id("user_4"));
+    EXPECT_FALSE(user.has_id(""));
   }
 
-  void test_user_requires_id_and_email_to_be_valid()
+  TEST(UserTests, HasEmailReturnsTrueOnlyForMatchingEmail)
   {
-    rixlib::auth::User user;
+    const User user{
+        "user_4",
+        "bjarne@example.com",
+        "hash",
+        1000};
 
-    assert(!user.valid());
+    EXPECT_TRUE(user.has_email("bjarne@example.com"));
+    EXPECT_FALSE(user.has_email("other@example.com"));
+    EXPECT_FALSE(user.has_email(""));
+  }
 
-    user.set_id("user_3");
-    assert(!user.valid());
+  TEST(UserTests, MissingIdMakesUserInvalid)
+  {
+    const User user{
+        "",
+        "ada@example.com",
+        "hash",
+        1000};
 
-    user.set_email("user3@example.com");
-    assert(user.valid());
+    EXPECT_FALSE(user.valid());
+  }
 
-    user.set_id("");
-    assert(!user.valid());
+  TEST(UserTests, MissingEmailMakesUserInvalid)
+  {
+    const User user{
+        "user_5",
+        "",
+        "hash",
+        1000};
+
+    EXPECT_FALSE(user.valid());
+  }
+
+  TEST(UserTests, MissingPasswordHashMakesUserInvalid)
+  {
+    const User user{
+        "user_6",
+        "ada@example.com",
+        "",
+        1000};
+
+    EXPECT_FALSE(user.valid());
   }
 } // namespace
-
-int main()
-{
-  test_default_user_is_invalid();
-  test_constructed_user_has_expected_values();
-  test_user_setters_update_values();
-  test_has_email_checks_exact_email();
-  test_user_requires_id_and_email_to_be_valid();
-
-  return 0;
-}

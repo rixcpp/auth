@@ -15,398 +15,165 @@
  */
 
 #include <rix/auth/Auth.hpp>
+#include <rix/auth/AuthConfig.hpp>
+#include <rix/auth/AuthError.hpp>
+#include <rix/auth/stores/MemorySessionStore.hpp>
+#include <rix/auth/stores/MemoryUserStore.hpp>
 
-#include <algorithm>
 #include <iostream>
-#include <optional>
 #include <string>
-#include <string_view>
-#include <vector>
 
 namespace
 {
-  class MemoryUserStore final : public rixlib::auth::UserStore
-  {
-  public:
-    [[nodiscard]] rixlib::auth::AuthStatus create(
-        const rixlib::auth::User &user) override
-    {
-      if (!user.valid())
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidInput,
-                "User is invalid."));
-      }
-
-      const auto exists = std::any_of(
-          users_.begin(),
-          users_.end(),
-          [&](const rixlib::auth::User &stored)
-          {
-            return stored.id() == user.id() ||
-                   stored.email() == user.email();
-          });
-
-      if (exists)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::UserAlreadyExists,
-                "User already exists."));
-      }
-
-      users_.push_back(user);
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus update(
-        const rixlib::auth::User &user) override
-    {
-      for (rixlib::auth::User &stored : users_)
-      {
-        if (stored.id() == user.id())
-        {
-          stored = user;
-          return rixlib::auth::AuthStatus::success();
-        }
-      }
-
-      return rixlib::auth::AuthStatus::failure(
-          rixlib::auth::make_auth_error(
-              rixlib::auth::AuthErrorCode::UserNotFound,
-              "User not found."));
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus remove_by_id(
-        std::string_view id) override
-    {
-      const auto old_size = users_.size();
-
-      users_.erase(
-          std::remove_if(
-              users_.begin(),
-              users_.end(),
-              [&](const rixlib::auth::User &user)
-              {
-                return user.id() == id;
-              }),
-          users_.end());
-
-      if (users_.size() == old_size)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::UserNotFound,
-                "User not found."));
-      }
-
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>
-    find_by_id(std::string_view id) const override
-    {
-      for (const rixlib::auth::User &user : users_)
-      {
-        if (user.id() == id)
-        {
-          return rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>::success(user);
-        }
-      }
-
-      return rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>::success(std::nullopt);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>
-    find_by_email(std::string_view email) const override
-    {
-      for (const rixlib::auth::User &user : users_)
-      {
-        if (user.email() == email)
-        {
-          return rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>::success(user);
-        }
-      }
-
-      return rixlib::auth::AuthResult<std::optional<rixlib::auth::User>>::success(std::nullopt);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<bool>
-    exists_by_id(std::string_view id) const override
-    {
-      const auto exists = std::any_of(
-          users_.begin(),
-          users_.end(),
-          [&](const rixlib::auth::User &user)
-          {
-            return user.id() == id;
-          });
-
-      return rixlib::auth::AuthResult<bool>::success(exists);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<bool>
-    exists_by_email(std::string_view email) const override
-    {
-      const auto exists = std::any_of(
-          users_.begin(),
-          users_.end(),
-          [&](const rixlib::auth::User &user)
-          {
-            return user.email() == email;
-          });
-
-      return rixlib::auth::AuthResult<bool>::success(exists);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::vector<rixlib::auth::User>>
-    all() const override
-    {
-      return rixlib::auth::AuthResult<std::vector<rixlib::auth::User>>::success(users_);
-    }
-
-  private:
-    std::vector<rixlib::auth::User> users_;
-  };
-
-  class MemorySessionStore final : public rixlib::auth::SessionStore
-  {
-  public:
-    [[nodiscard]] rixlib::auth::AuthStatus create(
-        const rixlib::auth::Session &session) override
-    {
-      if (!session.valid())
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidInput,
-                "Session is invalid."));
-      }
-
-      const auto exists = std::any_of(
-          sessions_.begin(),
-          sessions_.end(),
-          [&](const rixlib::auth::Session &stored)
-          {
-            return stored.id() == session.id();
-          });
-
-      if (exists)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidSession,
-                "Session already exists."));
-      }
-
-      sessions_.push_back(session);
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus update(
-        const rixlib::auth::Session &session) override
-    {
-      for (rixlib::auth::Session &stored : sessions_)
-      {
-        if (stored.id() == session.id())
-        {
-          stored = session;
-          return rixlib::auth::AuthStatus::success();
-        }
-      }
-
-      return rixlib::auth::AuthStatus::failure(
-          rixlib::auth::make_auth_error(
-              rixlib::auth::AuthErrorCode::InvalidSession,
-              "Session not found."));
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus remove_by_id(
-        std::string_view id) override
-    {
-      const auto old_size = sessions_.size();
-
-      sessions_.erase(
-          std::remove_if(
-              sessions_.begin(),
-              sessions_.end(),
-              [&](const rixlib::auth::Session &session)
-              {
-                return session.id() == id;
-              }),
-          sessions_.end());
-
-      if (sessions_.size() == old_size)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidSession,
-                "Session not found."));
-      }
-
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus revoke_by_id(
-        std::string_view id) override
-    {
-      for (rixlib::auth::Session &session : sessions_)
-      {
-        if (session.id() == id)
-        {
-          session.set_revoked(true);
-          return rixlib::auth::AuthStatus::success();
-        }
-      }
-
-      return rixlib::auth::AuthStatus::failure(
-          rixlib::auth::make_auth_error(
-              rixlib::auth::AuthErrorCode::InvalidSession,
-              "Session not found."));
-    }
-
-    [[nodiscard]] rixlib::auth::AuthStatus revoke_by_user_id(
-        std::string_view user_id) override
-    {
-      bool changed = false;
-
-      for (rixlib::auth::Session &session : sessions_)
-      {
-        if (session.user_id() == user_id)
-        {
-          session.set_revoked(true);
-          changed = true;
-        }
-      }
-
-      if (!changed)
-      {
-        return rixlib::auth::AuthStatus::failure(
-            rixlib::auth::make_auth_error(
-                rixlib::auth::AuthErrorCode::InvalidSession,
-                "Session not found."));
-      }
-
-      return rixlib::auth::AuthStatus::success();
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::optional<rixlib::auth::Session>>
-    find_by_id(std::string_view id) const override
-    {
-      for (const rixlib::auth::Session &session : sessions_)
-      {
-        if (session.id() == id)
-        {
-          return rixlib::auth::AuthResult<std::optional<rixlib::auth::Session>>::success(session);
-        }
-      }
-
-      return rixlib::auth::AuthResult<std::optional<rixlib::auth::Session>>::success(std::nullopt);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::vector<rixlib::auth::Session>>
-    find_by_user_id(std::string_view user_id) const override
-    {
-      std::vector<rixlib::auth::Session> result;
-
-      for (const rixlib::auth::Session &session : sessions_)
-      {
-        if (session.user_id() == user_id)
-        {
-          result.push_back(session);
-        }
-      }
-
-      return rixlib::auth::AuthResult<std::vector<rixlib::auth::Session>>::success(result);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<bool>
-    exists_by_id(std::string_view id) const override
-    {
-      const auto exists = std::any_of(
-          sessions_.begin(),
-          sessions_.end(),
-          [&](const rixlib::auth::Session &session)
-          {
-            return session.id() == id;
-          });
-
-      return rixlib::auth::AuthResult<bool>::success(exists);
-    }
-
-    [[nodiscard]] rixlib::auth::AuthResult<std::vector<rixlib::auth::Session>>
-    all() const override
-    {
-      return rixlib::auth::AuthResult<std::vector<rixlib::auth::Session>>::success(sessions_);
-    }
-
-  private:
-    std::vector<rixlib::auth::Session> sessions_;
-  };
-
   void print_error(const rixlib::auth::AuthError &error)
   {
-    std::cout << "error: " << rixlib::auth::to_string(error.code())
-              << " - " << error.message() << '\n';
+    std::cerr << "auth error: "
+              << rixlib::auth::to_string(error.code())
+              << ": "
+              << error.message()
+              << '\n';
+  }
+
+  rixlib::auth::AuthConfig make_auth_config()
+  {
+    auto config = rixlib::auth::AuthConfig::development();
+
+    config.set_min_password_length(8);
+    config.set_session_ttl_seconds(60 * 60 * 24 * 7);
+    config.set_token_ttl_seconds(60 * 15);
+    config.set_issuer("rix/auth/example");
+    config.set_require_email_verification(false);
+    config.set_rotate_sessions(true);
+
+    return config;
+  }
+
+  bool register_user(rixlib::auth::Auth &auth)
+  {
+    const auto result = auth.register_user(
+        rixlib::auth::RegisterRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    if (result.failed())
+    {
+      print_error(result.error());
+      return false;
+    }
+
+    const auto &user = result.value();
+
+    std::cout << "registered user\n";
+    std::cout << "  id: " << user.id() << '\n';
+    std::cout << "  email: " << user.email() << '\n';
+    std::cout << "  verified: "
+              << (user.email_verified() ? "yes" : "no")
+              << '\n';
+
+    return true;
+  }
+
+  bool login_user(
+      rixlib::auth::Auth &auth,
+      std::string &session_id)
+  {
+    const auto result = auth.login(
+        rixlib::auth::LoginRequest{
+            "ada@example.com",
+            "correct-password"});
+
+    if (result.failed())
+    {
+      print_error(result.error());
+      return false;
+    }
+
+    const auto &login = result.value();
+
+    session_id = login.session.id();
+
+    std::cout << "login successful\n";
+    std::cout << "  user: " << login.user.email() << '\n';
+    std::cout << "  session: " << login.session.id() << '\n';
+    std::cout << "  token issuer: " << login.token.issuer() << '\n';
+
+    return true;
+  }
+
+  bool authenticate_session(
+      rixlib::auth::Auth &auth,
+      const std::string &session_id)
+  {
+    const auto result = auth.authenticate_session(session_id);
+
+    if (result.failed())
+    {
+      print_error(result.error());
+      return false;
+    }
+
+    const auto &session = result.value();
+
+    std::cout << "session authenticated\n";
+    std::cout << "  session: " << session.id() << '\n';
+    std::cout << "  user: " << session.user_id() << '\n';
+
+    return true;
+  }
+
+  bool logout_user(
+      rixlib::auth::Auth &auth,
+      const std::string &session_id)
+  {
+    const auto status = auth.logout(session_id);
+
+    if (status.failed())
+    {
+      print_error(status.error());
+      return false;
+    }
+
+    std::cout << "logout successful\n";
+    return true;
+  }
+
+  int run_basic_example()
+  {
+    rixlib::auth::MemoryUserStore users;
+    rixlib::auth::MemorySessionStore sessions;
+
+    rixlib::auth::Auth auth{
+        users,
+        sessions,
+        make_auth_config()};
+
+    std::string session_id;
+
+    if (!register_user(auth))
+    {
+      return 1;
+    }
+
+    if (!login_user(auth, session_id))
+    {
+      return 1;
+    }
+
+    if (!authenticate_session(auth, session_id))
+    {
+      return 1;
+    }
+
+    if (!logout_user(auth, session_id))
+    {
+      return 1;
+    }
+
+    return 0;
   }
 } // namespace
 
 int main()
 {
-  MemoryUserStore users;
-  MemorySessionStore sessions;
-
-  rixlib::auth::Auth auth{users, sessions};
-
-  const auto registered = auth.register_user(
-      rixlib::auth::RegisterRequest{
-          "ada@example.com",
-          "secret123"});
-
-  if (registered.failed())
-  {
-    print_error(registered.error());
-    return 1;
-  }
-
-  std::cout << "registered user: " << registered.value().email() << '\n';
-
-  const auto logged_in = auth.login(
-      rixlib::auth::LoginRequest{
-          "ada@example.com",
-          "secret123"});
-
-  if (logged_in.failed())
-  {
-    print_error(logged_in.error());
-    return 1;
-  }
-
-  std::cout << "logged in user: " << logged_in.value().user.email() << '\n';
-  std::cout << "session id: " << logged_in.value().session.id() << '\n';
-
-  const auto authenticated = auth.authenticate_session(
-      logged_in.value().session.id());
-
-  if (authenticated.failed())
-  {
-    print_error(authenticated.error());
-    return 1;
-  }
-
-  std::cout << "session authenticated for user id: "
-            << authenticated.value().user_id() << '\n';
-
-  const auto logout = auth.logout(logged_in.value().session.id());
-
-  if (logout.failed())
-  {
-    print_error(logout.error());
-    return 1;
-  }
-
-  std::cout << "logged out successfully\n";
-
-  return 0;
+  return run_basic_example();
 }

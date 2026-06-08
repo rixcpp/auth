@@ -97,6 +97,21 @@ namespace rixlib::auth
     return !id_.empty() && !user_id_.empty();
   }
 
+  bool Session::has_id() const noexcept
+  {
+    return !id_.empty();
+  }
+
+  bool Session::has_user_id() const noexcept
+  {
+    return !user_id_.empty();
+  }
+
+  bool Session::has_id(std::string_view value) const noexcept
+  {
+    return id_ == value;
+  }
+
   bool Session::belongs_to(std::string_view value) const noexcept
   {
     return user_id_ == value;
@@ -110,5 +125,21 @@ namespace rixlib::auth
   bool Session::usable(std::int64_t now) const noexcept
   {
     return valid() && !revoked_ && !expired(now);
+  }
+
+  bool Session::refreshable(std::int64_t now) const noexcept
+  {
+    return usable(now);
+  }
+
+  void Session::refresh(std::int64_t now, std::int64_t ttl_seconds) noexcept
+  {
+    last_seen_at_ = now;
+    expires_at_ = now + ttl_seconds;
+  }
+
+  void Session::revoke() noexcept
+  {
+    revoked_ = true;
   }
 } // namespace rixlib::auth

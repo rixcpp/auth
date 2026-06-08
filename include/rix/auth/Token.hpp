@@ -12,8 +12,6 @@
  *
  *  Rix
  *
- *  Token model for rix/auth.
- *
  */
 
 #ifndef RIXCPP_AUTH_INCLUDE_RIX_AUTH_TOKEN_HPP_INCLUDED
@@ -26,14 +24,13 @@
 namespace rixlib::auth
 {
   /**
-   * @brief Represents an authentication token.
+   * @brief Authentication token model.
    *
-   * Token is a value object used by rix/auth to represent short-lived or
-   * long-lived authentication tokens.
+   * Token represents a short-lived or long-lived authentication token.
+   * It stores the raw token value, related user id, issuer, timestamps,
+   * and revocation state.
    *
-   * It intentionally keeps the token payload simple at this level. Signing,
-   * verification, hashing, and transport concerns are handled by higher-level
-   * auth services or by Vix modules used internally.
+   * The token value is sensitive and must never be logged in production.
    */
   class Token
   {
@@ -58,8 +55,6 @@ namespace rixlib::auth
 
     /**
      * @brief Return the raw token value.
-     *
-     * The returned value is sensitive and must not be logged in production.
      *
      * @return Raw token value.
      */
@@ -89,26 +84,26 @@ namespace rixlib::auth
     /**
      * @brief Return the token issuer.
      *
-     * @return Token issuer.
+     * @return Issuer name.
      */
     [[nodiscard]] const std::string &issuer() const noexcept;
 
     /**
      * @brief Set the token issuer.
      *
-     * @param value Token issuer.
+     * @param value Issuer name.
      */
     void set_issuer(std::string value);
 
     /**
-     * @brief Return the token creation timestamp.
+     * @brief Return the token issue timestamp.
      *
      * @return Unix timestamp in seconds.
      */
     [[nodiscard]] std::int64_t issued_at() const noexcept;
 
     /**
-     * @brief Set the token creation timestamp.
+     * @brief Set the token issue timestamp.
      *
      * @param value Unix timestamp in seconds.
      */
@@ -129,41 +124,63 @@ namespace rixlib::auth
     void set_expires_at(std::int64_t value) noexcept;
 
     /**
-     * @brief Return whether the token has been revoked.
+     * @brief Return whether the token is revoked.
      *
-     * @return true if the token has been revoked.
+     * @return true if the token is revoked.
      */
     [[nodiscard]] bool revoked() const noexcept;
 
     /**
-     * @brief Set whether the token has been revoked.
+     * @brief Set whether the token is revoked.
      *
      * @param value true when the token is revoked.
      */
     void set_revoked(bool value) noexcept;
 
     /**
-     * @brief Return true when the token has a non-empty value and user id.
+     * @brief Return true when the token has the required identity fields.
      *
-     * @return true if the token has the minimum required fields.
+     * @return true if value and user id are not empty.
      */
     [[nodiscard]] bool valid() const noexcept;
+
+    /**
+     * @brief Return true when the token has a value.
+     *
+     * @return true if token value is not empty.
+     */
+    [[nodiscard]] bool has_value() const noexcept;
+
+    /**
+     * @brief Return true when the token has a user id.
+     *
+     * @return true if user id is not empty.
+     */
+    [[nodiscard]] bool has_user_id() const noexcept;
 
     /**
      * @brief Return true when this token belongs to the given user.
      *
      * @param value User identifier to compare.
-     * @return true if the user identifier matches.
+     * @return true if the user id matches.
      */
     [[nodiscard]] bool belongs_to(std::string_view value) const noexcept;
 
     /**
-     * @brief Return true when the token value matches the given value.
+     * @brief Return true when the raw token value matches the given value.
      *
      * @param value Token value to compare.
-     * @return true if the token value matches.
+     * @return true if token value matches.
      */
     [[nodiscard]] bool matches(std::string_view value) const noexcept;
+
+    /**
+     * @brief Return true when the issuer matches the given value.
+     *
+     * @param value Issuer to compare.
+     * @return true if issuer matches.
+     */
+    [[nodiscard]] bool issued_by(std::string_view value) const noexcept;
 
     /**
      * @brief Return true when the token is expired at the given time.
@@ -179,16 +196,23 @@ namespace rixlib::auth
      * A usable token must be valid, not revoked, and not expired.
      *
      * @param now Unix timestamp in seconds.
-     * @return true if the token can be used.
+     * @return true if the token is usable.
      */
     [[nodiscard]] bool usable(std::int64_t now) const noexcept;
+
+    /**
+     * @brief Revoke the token.
+     */
+    void revoke() noexcept;
 
   private:
     std::string value_;
     std::string user_id_;
     std::string issuer_;
+
     std::int64_t issued_at_ = 0;
     std::int64_t expires_at_ = 0;
+
     bool revoked_ = false;
   };
 } // namespace rixlib::auth

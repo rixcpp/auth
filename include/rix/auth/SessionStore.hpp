@@ -12,8 +12,6 @@
  *
  *  Rix
  *
- *  Session storage interface for rix/auth.
- *
  */
 
 #ifndef RIXCPP_AUTH_INCLUDE_RIX_AUTH_SESSIONSTORE_HPP_INCLUDED
@@ -29,14 +27,13 @@
 namespace rixlib::auth
 {
   /**
-   * @brief Abstract storage interface for user sessions.
+   * @brief Abstract session storage interface.
    *
-   * SessionStore defines the persistence contract used by rix/auth to create,
-   * find, update, revoke, and delete authenticated sessions.
+   * SessionStore defines the persistence contract used by rix/auth for
+   * creating, updating, revoking, deleting, and finding authenticated sessions.
    *
-   * This keeps the developer-facing Auth API simple while allowing different
-   * storage backends to be implemented later, such as memory, files, SQLite,
-   * MySQL, Redis, or Vix-based storage modules.
+   * Concrete implementations can be backed by memory, database storage,
+   * local durable KV storage, or another session backend.
    */
   class SessionStore
   {
@@ -47,7 +44,7 @@ namespace rixlib::auth
     virtual ~SessionStore();
 
     /**
-     * @brief Save a new session.
+     * @brief Create a new session.
      *
      * @param session Session to create.
      * @return AuthStatus indicating success or failure.
@@ -63,7 +60,7 @@ namespace rixlib::auth
     [[nodiscard]] virtual AuthStatus update(const Session &session) = 0;
 
     /**
-     * @brief Delete a session by identifier.
+     * @brief Remove a session by identifier.
      *
      * @param id Session identifier.
      * @return AuthStatus indicating success or failure.
@@ -73,7 +70,7 @@ namespace rixlib::auth
     /**
      * @brief Revoke a session by identifier.
      *
-     * A revoked session stays stored but can no longer be used.
+     * A revoked session remains stored but can no longer be used.
      *
      * @param id Session identifier.
      * @return AuthStatus indicating success or failure.
@@ -81,7 +78,7 @@ namespace rixlib::auth
     [[nodiscard]] virtual AuthStatus revoke_by_id(std::string_view id) = 0;
 
     /**
-     * @brief Revoke all sessions attached to a user.
+     * @brief Revoke all sessions belonging to a user.
      *
      * @param user_id User identifier.
      * @return AuthStatus indicating success or failure.
@@ -98,7 +95,7 @@ namespace rixlib::auth
     find_by_id(std::string_view id) const = 0;
 
     /**
-     * @brief Find all sessions attached to a user.
+     * @brief Find all sessions belonging to a user.
      *
      * @param user_id User identifier.
      * @return AuthResult containing matching sessions.
@@ -107,7 +104,7 @@ namespace rixlib::auth
     find_by_user_id(std::string_view user_id) const = 0;
 
     /**
-     * @brief Return true when a session exists for the given identifier.
+     * @brief Return true when a session exists with the given identifier.
      *
      * @param id Session identifier.
      * @return AuthResult containing true when a matching session exists.
@@ -118,10 +115,11 @@ namespace rixlib::auth
     /**
      * @brief Return all stored sessions.
      *
-     * This function is mainly useful for tests, small stores, admin tools,
-     * and future cleanup or migration utilities.
+     * This is mainly useful for tests, small stores, admin tools, cleanup jobs,
+     * and future migration utilities. Large production stores should prefer
+     * pagination in a dedicated higher-level API.
      *
-     * @return AuthResult containing the list of sessions.
+     * @return AuthResult containing all sessions.
      */
     [[nodiscard]] virtual AuthResult<std::vector<Session>> all() const = 0;
   };
