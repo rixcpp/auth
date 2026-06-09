@@ -82,7 +82,10 @@ jobs:
             spdlog:x64-windows `
             nlohmann-json:x64-windows `
             openssl:x64-windows `
+            zlib:x64-windows `
+            brotli:x64-windows `
             sqlite3:x64-windows `
+            libmysql:x64-windows `
             gtest:x64-windows
 
           "VCPKG_ROOT=$env:GITHUB_WORKSPACE/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -108,10 +111,13 @@ jobs:
             pkg-config \
             libasio-dev \
             libssl-dev \
+            zlib1g-dev \
+            libbrotli-dev \
             libsqlite3-dev \
             nlohmann-json3-dev \
             libfmt-dev \
             libspdlog-dev \
+            libmysqlcppconn-dev \
             libgtest-dev
 
       - name: Install macOS dependencies
@@ -128,10 +134,13 @@ jobs:
             curl \
             pkg-config \
             openssl@3 \
+            zlib \
+            brotli \
             sqlite \
             nlohmann-json \
             spdlog \
             fmt \
+            mysql-client \
             googletest
 
       - name: Clean workspace
@@ -142,7 +151,6 @@ jobs:
           rm -rf \
             build \
             install \
-            deps \
             smoke-rix-auth \
             logs
 
@@ -152,61 +160,12 @@ jobs:
         run: |
           set -euxo pipefail
 
-          if curl -fsSL https://vixcpp.com/install.sh | VIX_VERSION="${VIX_VERSION}" VIX_INSTALL_KIND=sdk sh; then
-            test -f "$HOME/.local/lib/cmake/Vix/VixConfig.cmake"
-            test -f "$HOME/.local/include/vix.hpp"
+          curl -fsSL https://vixcpp.com/install.sh | VIX_VERSION="${VIX_VERSION}" VIX_INSTALL_KIND=sdk sh
 
-            echo "VIX_PREFIX=$HOME/.local" >> "$GITHUB_ENV"
-            exit 0
-          fi
+          test -f "$HOME/.local/lib/cmake/Vix/VixConfig.cmake"
+          test -f "$HOME/.local/include/vix.hpp"
 
-          echo "Vix SDK binary install failed. Building Vix from source instead."
-
-          git clone --depth 1 --branch "${VIX_VERSION}" --recurse-submodules https://github.com/vixcpp/vix.git deps/vix
-
-          cmake -S deps/vix -B deps/vix/build -G Ninja \
-            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps/vix-install" \
-            -DVIX_ENABLE_INSTALL=ON \
-            -DVIX_BUILD_EXAMPLES=OFF \
-            -DVIX_BUILD_TESTS=OFF \
-            -DVIX_ENABLE_WARNINGS=ON \
-            -DVIX_ENABLE_HTTP_COMPRESSION=OFF \
-            -DVIX_ENABLE_DB=ON \
-            -DVIX_DB_USE_SQLITE=ON \
-            -DVIX_DB_USE_MYSQL=OFF \
-            -DVIX_DB_USE_POSTGRES=OFF \
-            -DVIX_DB_USE_REDIS=OFF \
-            -DVIX_CORE_WITH_MYSQL=OFF \
-            -DVIX_ENABLE_ORM=OFF \
-            -DVIX_ENABLE_WEBSOCKET=OFF \
-            -DVIX_ENABLE_CLI=OFF \
-            -DVIX_ENABLE_MIDDLEWARE=OFF \
-            -DVIX_ENABLE_P2P=OFF \
-            -DVIX_ENABLE_P2P_HTTP=OFF \
-            -DVIX_ENABLE_CACHE=OFF \
-            -DVIX_ENABLE_ASYNC=OFF \
-            -DVIX_ENABLE_VALIDATION=ON \
-            -DVIX_ENABLE_CRYPTO=ON \
-            -DVIX_ENABLE_WEBRPC=OFF \
-            -DVIX_ENABLE_TIME=ON \
-            -DVIX_ENABLE_TESTS_MODULE=OFF \
-            -DVIX_ENABLE_TEMPLATE=OFF \
-            -DVIX_ENABLE_PROCESS=OFF \
-            -DVIX_ENABLE_THREADPOOL=OFF \
-            -DVIX_ENABLE_KV=OFF \
-            -DVIX_ENABLE_AGENT=OFF \
-            -DVIX_ENABLE_GAME=OFF \
-            -DVIX_TIME_BUILD_TESTS=OFF \
-            -DVIX_TIME_BUILD_BENCH=OFF
-
-          cmake --build deps/vix/build --config ${{ matrix.build_type }} -j"${BUILD_JOBS}"
-          cmake --install deps/vix/build --config ${{ matrix.build_type }}
-
-          test -f "${{ github.workspace }}/deps/vix-install/lib/cmake/Vix/VixConfig.cmake"
-          test -f "${{ github.workspace }}/deps/vix-install/include/vix.hpp"
-
-          echo "VIX_PREFIX=${{ github.workspace }}/deps/vix-install" >> "$GITHUB_ENV"
+          echo "VIX_PREFIX=$HOME/.local" >> "$GITHUB_ENV"
 
       - name: Install Vix SDK Windows
         if: runner.os == 'Windows'
@@ -214,95 +173,30 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $vixPrefix = "$env:GITHUB_WORKSPACE/deps/vix-install"
-          $vixBinaryPrefix = "$env:GITHUB_WORKSPACE/deps/vix-sdk"
+          $vixPrefix = "$env:GITHUB_WORKSPACE/deps/vix-sdk"
           $asset = "vix-sdk-windows-x86_64.zip"
           $url = "https://github.com/vixcpp/vix/releases/download/$env:VIX_VERSION/$asset"
 
           New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE/deps" | Out-Null
 
-          try {
-            Write-Host "Trying Vix SDK binary: $url"
+          Invoke-WebRequest -Uri "$url" -OutFile "$asset"
 
-            Invoke-WebRequest -Uri "$url" -OutFile "$asset"
-
-            New-Item -ItemType Directory -Force -Path "$vixBinaryPrefix" | Out-Null
-            Expand-Archive -Path "$asset" -DestinationPath "$vixBinaryPrefix" -Force
-
-            if (!(Test-Path "$vixBinaryPrefix/lib/cmake/Vix/VixConfig.cmake")) {
-              throw "Downloaded SDK does not contain VixConfig.cmake"
-            }
-
-            if (!(Test-Path "$vixBinaryPrefix/include/vix.hpp")) {
-              throw "Downloaded SDK does not contain vix.hpp"
-            }
-
-            "VIX_PREFIX=$vixBinaryPrefix" | Out-File -FilePath $env:GITHUB_ENV -Append
-            Write-Host "Using Vix SDK binary at $vixBinaryPrefix"
-            exit 0
-          }
-          catch {
-            Write-Host "Vix SDK binary is not available for Windows. Building Vix from source."
-            Write-Host $_
-          }
-
-          git clone --depth 1 --branch "$env:VIX_VERSION" --recurse-submodules https://github.com/vixcpp/vix.git deps/vix
-
-          cmake -S deps/vix -B deps/vix/build -G Ninja `
-            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
-            -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows `
-            -DCMAKE_INSTALL_PREFIX="$vixPrefix" `
-            -DVIX_ENABLE_INSTALL=ON `
-            -DVIX_BUILD_EXAMPLES=OFF `
-            -DVIX_BUILD_TESTS=OFF `
-            -DVIX_ENABLE_WARNINGS=ON `
-            -DVIX_ENABLE_HTTP_COMPRESSION=OFF `
-            -DVIX_ENABLE_DB=ON `
-            -DVIX_DB_USE_SQLITE=ON `
-            -DVIX_DB_USE_MYSQL=OFF `
-            -DVIX_DB_USE_POSTGRES=OFF `
-            -DVIX_DB_USE_REDIS=OFF `
-            -DVIX_CORE_WITH_MYSQL=OFF `
-            -DVIX_ENABLE_ORM=OFF `
-            -DVIX_ENABLE_WEBSOCKET=OFF `
-            -DVIX_ENABLE_CLI=OFF `
-            -DVIX_ENABLE_MIDDLEWARE=OFF `
-            -DVIX_ENABLE_P2P=OFF `
-            -DVIX_ENABLE_P2P_HTTP=OFF `
-            -DVIX_ENABLE_CACHE=OFF `
-            -DVIX_ENABLE_ASYNC=OFF `
-            -DVIX_ENABLE_VALIDATION=ON `
-            -DVIX_ENABLE_CRYPTO=ON `
-            -DVIX_ENABLE_WEBRPC=OFF `
-            -DVIX_ENABLE_TIME=ON `
-            -DVIX_ENABLE_TESTS_MODULE=OFF `
-            -DVIX_ENABLE_TEMPLATE=OFF `
-            -DVIX_ENABLE_PROCESS=OFF `
-            -DVIX_ENABLE_THREADPOOL=OFF `
-            -DVIX_ENABLE_KV=OFF `
-            -DVIX_ENABLE_AGENT=OFF `
-            -DVIX_ENABLE_GAME=OFF `
-            -DVIX_TIME_BUILD_TESTS=OFF `
-            -DVIX_TIME_BUILD_BENCH=OFF
-
-          cmake --build deps/vix/build --config ${{ matrix.build_type }} -j "$env:BUILD_JOBS"
-          cmake --install deps/vix/build --config ${{ matrix.build_type }}
+          New-Item -ItemType Directory -Force -Path "$vixPrefix" | Out-Null
+          Expand-Archive -Path "$asset" -DestinationPath "$vixPrefix" -Force
 
           if (!(Test-Path "$vixPrefix/lib/cmake/Vix/VixConfig.cmake")) {
-            Write-Host "VixConfig.cmake not found after source build"
+            Write-Host "VixConfig.cmake not found in SDK"
             Get-ChildItem -Recurse "$vixPrefix" | Select-Object FullName
             exit 1
           }
 
           if (!(Test-Path "$vixPrefix/include/vix.hpp")) {
-            Write-Host "vix.hpp not found after source build"
+            Write-Host "vix.hpp not found in SDK"
             Get-ChildItem -Recurse "$vixPrefix" | Select-Object FullName
             exit 1
           }
 
           "VIX_PREFIX=$vixPrefix" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "Using source-built Vix SDK at $vixPrefix"
 
       - name: Show Vix SDK prefix
         shell: bash
@@ -311,6 +205,8 @@ jobs:
 
           echo "VIX_PREFIX=$VIX_PREFIX"
           test -n "$VIX_PREFIX"
+          test -f "$VIX_PREFIX/lib/cmake/Vix/VixConfig.cmake"
+          test -f "$VIX_PREFIX/include/vix.hpp"
 
       - name: Configure rix/auth
         shell: bash
