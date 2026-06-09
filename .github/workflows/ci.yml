@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VIX_VERSION: v2.6.2
+  VIX_VERSION: v2.6.1
   BUILD_JOBS: 2
 
 jobs:
