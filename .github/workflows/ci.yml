@@ -86,6 +86,8 @@ jobs:
             brotli:x64-windows `
             sqlite3:x64-windows `
             libmysql:x64-windows `
+            sdl2:x64-windows `
+            sdl2-image:x64-windows `
             gtest:x64-windows
 
           "VCPKG_ROOT=$env:GITHUB_WORKSPACE/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -118,6 +120,9 @@ jobs:
             libfmt-dev \
             libspdlog-dev \
             libmysqlcppconn-dev \
+            libsdl2-dev \
+            libsdl2-image-dev \
+            libgl1-mesa-dev \
             libgtest-dev
 
       - name: Install macOS dependencies
@@ -141,6 +146,8 @@ jobs:
             spdlog \
             fmt \
             mysql-client \
+            sdl2 \
+            sdl2_image \
             googletest
 
       - name: Clean workspace
