@@ -178,6 +178,8 @@ add_library(rix_auth STATIC
   src/Auth.cpp
   src/AuthConfig.cpp
   src/AuthError.cpp
+  src/AuthModule.cpp
+  src/ManagedAuth.cpp
   src/PasswordHasher.cpp
   src/User.cpp
   src/Session.cpp
