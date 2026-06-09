@@ -60,6 +60,8 @@ namespace rixlib::auth
 
     case AuthErrorCode::InvalidInput:
       return "InvalidInput";
+    case AuthErrorCode::InvalidState:
+      return "invalid_state";
     case AuthErrorCode::InvalidEmail:
       return "InvalidEmail";
     case AuthErrorCode::InvalidPassword:

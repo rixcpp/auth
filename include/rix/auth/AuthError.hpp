@@ -33,6 +33,7 @@ namespace rixlib::auth
     None,
 
     InvalidInput,
+    InvalidState,
     InvalidEmail,
     InvalidPassword,
 

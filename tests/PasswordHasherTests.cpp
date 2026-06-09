@@ -76,7 +76,7 @@ namespace
     const auto result = hasher.hash("correct-password");
 
     ASSERT_TRUE(result.ok());
-    EXPECT_NE(result.value().find("rix-auth$"), std::string::npos);
+    EXPECT_EQ(result.value().find("vix-pbkdf2-sha256$"), 0U);
   }
 
   TEST(PasswordHasherTests, VerifyAcceptsMatchingPassword)

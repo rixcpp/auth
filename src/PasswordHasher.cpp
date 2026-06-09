@@ -70,12 +70,12 @@ namespace rixlib::auth
           make_password_error("Password exceeds the maximum length policy."));
     }
 
-    vix::crypto::PasswordHashOptions options;
-    options.iterations = iterations_;
-    options.salt_size = salt_size_;
-    options.hash_size = hash_size_;
+    vix::crypto::PasswordHashParams params;
+    params.iterations = iterations_;
+    params.salt_size = salt_size_;
+    params.hash_size = hash_size_;
 
-    auto hashed = vix::crypto::password_hash(password, options);
+    auto hashed = vix::crypto::password_hash(password, params);
 
     if (!hashed.ok())
     {

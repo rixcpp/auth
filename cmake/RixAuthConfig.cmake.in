@@ -1,0 +1,25 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# ------------------------------------------------------------------------------
+# Dependencies
+# ------------------------------------------------------------------------------
+
+find_dependency(Vix CONFIG)
+
+# ------------------------------------------------------------------------------
+# Targets
+# ------------------------------------------------------------------------------
+
+include("${CMAKE_CURRENT_LIST_DIR}/RixAuthTargets.cmake")
+
+# ------------------------------------------------------------------------------
+# Compatibility aliases
+# ------------------------------------------------------------------------------
+
+if(TARGET rix::auth AND NOT TARGET rix_auth)
+  add_library(rix_auth ALIAS rix::auth)
+endif()
+
+check_required_components(RixAuth)
