@@ -1,0 +1,485 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - release/**
+  pull_request:
+    branches:
+      - main
+      - dev
+      - release/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rix-auth-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VIX_VERSION: v2.6.2
+  BUILD_JOBS: 2
+
+jobs:
+  build-test-install:
+    name: ${{ matrix.os }} / ${{ matrix.build_type }} / tests=${{ matrix.tests }} / examples=${{ matrix.examples }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            build_type: Debug
+            tests: ON
+            examples: OFF
+
+          - os: ubuntu-24.04
+            build_type: Release
+            tests: ON
+            examples: ON
+
+          - os: macos-14
+            build_type: Release
+            tests: ON
+            examples: ON
+
+          - os: windows-2022
+            build_type: Release
+            tests: ON
+            examples: OFF
+
+    steps:
+      - name: Checkout rix/auth
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Setup MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          choco install pkgconfiglite -y
+
+          git clone https://github.com/microsoft/vcpkg "$env:GITHUB_WORKSPACE/vcpkg"
+          & "$env:GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.bat"
+
+          & "$env:GITHUB_WORKSPACE/vcpkg/vcpkg.exe" install `
+            fmt:x64-windows `
+            spdlog:x64-windows `
+            nlohmann-json:x64-windows `
+            openssl:x64-windows `
+            sqlite3:x64-windows `
+            gtest:x64-windows
+
+          "VCPKG_ROOT=$env:GITHUB_WORKSPACE/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CMAKE_TOOLCHAIN_FILE=$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            git \
+            curl \
+            ca-certificates \
+            tar \
+            zip \
+            unzip \
+            pkg-config \
+            libasio-dev \
+            libssl-dev \
+            libsqlite3-dev \
+            nlohmann-json3-dev \
+            libfmt-dev \
+            libspdlog-dev \
+            libgtest-dev
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          brew update
+          brew install \
+            cmake \
+            ninja \
+            git \
+            curl \
+            pkg-config \
+            openssl@3 \
+            sqlite \
+            nlohmann-json \
+            spdlog \
+            fmt \
+            googletest
+
+      - name: Clean workspace
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          rm -rf \
+            build \
+            install \
+            deps \
+            smoke-rix-auth \
+            logs
+
+      - name: Install Vix SDK Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          if curl -fsSL https://vixcpp.com/install.sh | VIX_VERSION="${VIX_VERSION}" VIX_INSTALL_KIND=sdk sh; then
+            test -f "$HOME/.local/lib/cmake/Vix/VixConfig.cmake"
+            test -f "$HOME/.local/include/vix.hpp"
+
+            echo "VIX_PREFIX=$HOME/.local" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "Vix SDK binary install failed. Building Vix from source instead."
+
+          git clone --depth 1 --branch "${VIX_VERSION}" --recurse-submodules https://github.com/vixcpp/vix.git deps/vix
+
+          cmake -S deps/vix -B deps/vix/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps/vix-install" \
+            -DVIX_ENABLE_INSTALL=ON \
+            -DVIX_BUILD_EXAMPLES=OFF \
+            -DVIX_BUILD_TESTS=OFF \
+            -DVIX_ENABLE_WARNINGS=ON \
+            -DVIX_ENABLE_HTTP_COMPRESSION=OFF \
+            -DVIX_ENABLE_DB=ON \
+            -DVIX_DB_USE_SQLITE=ON \
+            -DVIX_DB_USE_MYSQL=OFF \
+            -DVIX_DB_USE_POSTGRES=OFF \
+            -DVIX_DB_USE_REDIS=OFF \
+            -DVIX_CORE_WITH_MYSQL=OFF \
+            -DVIX_ENABLE_ORM=OFF \
+            -DVIX_ENABLE_WEBSOCKET=OFF \
+            -DVIX_ENABLE_CLI=OFF \
+            -DVIX_ENABLE_MIDDLEWARE=OFF \
+            -DVIX_ENABLE_P2P=OFF \
+            -DVIX_ENABLE_P2P_HTTP=OFF \
+            -DVIX_ENABLE_CACHE=OFF \
+            -DVIX_ENABLE_ASYNC=OFF \
+            -DVIX_ENABLE_VALIDATION=ON \
+            -DVIX_ENABLE_CRYPTO=ON \
+            -DVIX_ENABLE_WEBRPC=OFF \
+            -DVIX_ENABLE_TIME=ON \
+            -DVIX_ENABLE_TESTS_MODULE=OFF \
+            -DVIX_ENABLE_TEMPLATE=OFF \
+            -DVIX_ENABLE_PROCESS=OFF \
+            -DVIX_ENABLE_THREADPOOL=OFF \
+            -DVIX_ENABLE_KV=OFF \
+            -DVIX_ENABLE_AGENT=OFF \
+            -DVIX_ENABLE_GAME=OFF \
+            -DVIX_TIME_BUILD_TESTS=OFF \
+            -DVIX_TIME_BUILD_BENCH=OFF
+
+          cmake --build deps/vix/build --config ${{ matrix.build_type }} -j"${BUILD_JOBS}"
+          cmake --install deps/vix/build --config ${{ matrix.build_type }}
+
+          test -f "${{ github.workspace }}/deps/vix-install/lib/cmake/Vix/VixConfig.cmake"
+          test -f "${{ github.workspace }}/deps/vix-install/include/vix.hpp"
+
+          echo "VIX_PREFIX=${{ github.workspace }}/deps/vix-install" >> "$GITHUB_ENV"
+
+      - name: Install Vix SDK Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $vixPrefix = "$env:GITHUB_WORKSPACE/deps/vix-install"
+          $vixBinaryPrefix = "$env:GITHUB_WORKSPACE/deps/vix-sdk"
+          $asset = "vix-sdk-windows-x86_64.zip"
+          $url = "https://github.com/vixcpp/vix/releases/download/$env:VIX_VERSION/$asset"
+
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE/deps" | Out-Null
+
+          try {
+            Write-Host "Trying Vix SDK binary: $url"
+
+            Invoke-WebRequest -Uri "$url" -OutFile "$asset"
+
+            New-Item -ItemType Directory -Force -Path "$vixBinaryPrefix" | Out-Null
+            Expand-Archive -Path "$asset" -DestinationPath "$vixBinaryPrefix" -Force
+
+            if (!(Test-Path "$vixBinaryPrefix/lib/cmake/Vix/VixConfig.cmake")) {
+              throw "Downloaded SDK does not contain VixConfig.cmake"
+            }
+
+            if (!(Test-Path "$vixBinaryPrefix/include/vix.hpp")) {
+              throw "Downloaded SDK does not contain vix.hpp"
+            }
+
+            "VIX_PREFIX=$vixBinaryPrefix" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Host "Using Vix SDK binary at $vixBinaryPrefix"
+            exit 0
+          }
+          catch {
+            Write-Host "Vix SDK binary is not available for Windows. Building Vix from source."
+            Write-Host $_
+          }
+
+          git clone --depth 1 --branch "$env:VIX_VERSION" --recurse-submodules https://github.com/vixcpp/vix.git deps/vix
+
+          cmake -S deps/vix -B deps/vix/build -G Ninja `
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
+            -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DCMAKE_INSTALL_PREFIX="$vixPrefix" `
+            -DVIX_ENABLE_INSTALL=ON `
+            -DVIX_BUILD_EXAMPLES=OFF `
+            -DVIX_BUILD_TESTS=OFF `
+            -DVIX_ENABLE_WARNINGS=ON `
+            -DVIX_ENABLE_HTTP_COMPRESSION=OFF `
+            -DVIX_ENABLE_DB=ON `
+            -DVIX_DB_USE_SQLITE=ON `
+            -DVIX_DB_USE_MYSQL=OFF `
+            -DVIX_DB_USE_POSTGRES=OFF `
+            -DVIX_DB_USE_REDIS=OFF `
+            -DVIX_CORE_WITH_MYSQL=OFF `
+            -DVIX_ENABLE_ORM=OFF `
+            -DVIX_ENABLE_WEBSOCKET=OFF `
+            -DVIX_ENABLE_CLI=OFF `
+            -DVIX_ENABLE_MIDDLEWARE=OFF `
+            -DVIX_ENABLE_P2P=OFF `
+            -DVIX_ENABLE_P2P_HTTP=OFF `
+            -DVIX_ENABLE_CACHE=OFF `
+            -DVIX_ENABLE_ASYNC=OFF `
+            -DVIX_ENABLE_VALIDATION=ON `
+            -DVIX_ENABLE_CRYPTO=ON `
+            -DVIX_ENABLE_WEBRPC=OFF `
+            -DVIX_ENABLE_TIME=ON `
+            -DVIX_ENABLE_TESTS_MODULE=OFF `
+            -DVIX_ENABLE_TEMPLATE=OFF `
+            -DVIX_ENABLE_PROCESS=OFF `
+            -DVIX_ENABLE_THREADPOOL=OFF `
+            -DVIX_ENABLE_KV=OFF `
+            -DVIX_ENABLE_AGENT=OFF `
+            -DVIX_ENABLE_GAME=OFF `
+            -DVIX_TIME_BUILD_TESTS=OFF `
+            -DVIX_TIME_BUILD_BENCH=OFF
+
+          cmake --build deps/vix/build --config ${{ matrix.build_type }} -j "$env:BUILD_JOBS"
+          cmake --install deps/vix/build --config ${{ matrix.build_type }}
+
+          if (!(Test-Path "$vixPrefix/lib/cmake/Vix/VixConfig.cmake")) {
+            Write-Host "VixConfig.cmake not found after source build"
+            Get-ChildItem -Recurse "$vixPrefix" | Select-Object FullName
+            exit 1
+          }
+
+          if (!(Test-Path "$vixPrefix/include/vix.hpp")) {
+            Write-Host "vix.hpp not found after source build"
+            Get-ChildItem -Recurse "$vixPrefix" | Select-Object FullName
+            exit 1
+          }
+
+          "VIX_PREFIX=$vixPrefix" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Using source-built Vix SDK at $vixPrefix"
+
+      - name: Show Vix SDK prefix
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "VIX_PREFIX=$VIX_PREFIX"
+          test -n "$VIX_PREFIX"
+
+      - name: Configure rix/auth
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          CMAKE_ARGS=(
+            -S . -B build -G Ninja
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+            "-DCMAKE_PREFIX_PATH=$VIX_PREFIX"
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install"
+            -DRIX_AUTH_BUILD_TESTS=${{ matrix.tests }}
+            -DRIX_AUTH_BUILD_EXAMPLES=${{ matrix.examples }}
+            -DRIX_AUTH_INSTALL=ON
+            -DRIX_AUTH_ENABLE_LOCAL_DEPS=OFF
+          )
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            CMAKE_ARGS+=(
+              "-DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE"
+              -DVCPKG_TARGET_TRIPLET=x64-windows
+            )
+          fi
+
+          cmake "${CMAKE_ARGS[@]}"
+
+      - name: Build rix/auth
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cmake --build build --config ${{ matrix.build_type }} -j"${BUILD_JOBS}"
+
+      - name: Run rix/auth tests
+        if: matrix.tests == 'ON'
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure
+
+      - name: Install rix/auth
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cmake --install build --config ${{ matrix.build_type }}
+
+      - name: Validate installed rix/auth package tree
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          test -d install/include/rix/auth
+          test -f install/lib/cmake/rix_auth/RixAuthConfig.cmake
+          test -f install/lib/cmake/rix_auth/RixAuthConfigVersion.cmake
+          test -f install/lib/cmake/rix_auth/RixAuthTargets.cmake
+
+          find install/include -maxdepth 5 -type f | sort > installed-rix-auth-headers.txt
+          find install/lib/cmake -maxdepth 5 -type f | sort > installed-rix-auth-cmake.txt
+
+          sed -n '1,120p' installed-rix-auth-headers.txt
+          cat installed-rix-auth-cmake.txt
+
+      - name: Smoke test installed rix/auth package
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          rm -rf smoke-rix-auth
+          mkdir -p smoke-rix-auth
+
+          cat > smoke-rix-auth/CMakeLists.txt <<'CMAKE_EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(rix_auth_consumer LANGUAGES CXX)
+
+          set(CMAKE_CXX_STANDARD 20)
+          set(CMAKE_CXX_STANDARD_REQUIRED ON)
+          set(CMAKE_CXX_EXTENSIONS OFF)
+
+          find_package(RixAuth CONFIG REQUIRED)
+
+          add_executable(app main.cpp)
+          target_link_libraries(app PRIVATE rix::auth)
+          CMAKE_EOF
+
+          cat > smoke-rix-auth/main.cpp <<'CPP_EOF'
+          #include <rix/auth/AuthConfig.hpp>
+          #include <rix/auth/PasswordHasher.hpp>
+
+          int main()
+          {
+            rixlib::auth::AuthConfig config;
+            rixlib::auth::PasswordHasher hasher{config};
+
+            auto hash = hasher.hash("correct-password");
+            if (hash.failed())
+            {
+              return 1;
+            }
+
+            if (!hasher.verify("correct-password", hash.value()))
+            {
+              return 2;
+            }
+
+            return 0;
+          }
+          CPP_EOF
+
+          SMOKE_ARGS=(
+            -S smoke-rix-auth -B smoke-rix-auth/build -G Ninja
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/install;$VIX_PREFIX"
+          )
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            SMOKE_ARGS+=(
+              "-DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE"
+              -DVCPKG_TARGET_TRIPLET=x64-windows
+            )
+          fi
+
+          cmake "${SMOKE_ARGS[@]}"
+
+          cmake --build smoke-rix-auth/build --config ${{ matrix.build_type }} -j"${BUILD_JOBS}"
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ./smoke-rix-auth/build/app.exe
+          else
+            ./smoke-rix-auth/build/app
+          fi
+
+      - name: Collect logs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+
+          OUT="logs/${{ matrix.os }}-${{ matrix.build_type }}"
+          mkdir -p "$OUT"
+
+          echo "runner.os=${{ runner.os }}" > "$OUT/context.txt"
+          echo "matrix.os=${{ matrix.os }}" >> "$OUT/context.txt"
+          echo "matrix.build_type=${{ matrix.build_type }}" >> "$OUT/context.txt"
+          echo "VIX_PREFIX=${VIX_PREFIX:-}" >> "$OUT/context.txt"
+
+          for file in \
+            build/CMakeCache.txt \
+            build/CMakeFiles/CMakeOutput.log \
+            build/CMakeFiles/CMakeError.log \
+            build/CMakeFiles/CMakeConfigureLog.yaml \
+            build/Testing/Temporary/LastTest.log \
+            smoke-rix-auth/build/CMakeCache.txt \
+            smoke-rix-auth/build/CMakeFiles/CMakeOutput.log \
+            smoke-rix-auth/build/CMakeFiles/CMakeError.log
+          do
+            if [ -f "$file" ]; then
+              mkdir -p "$OUT/$(dirname "$file")"
+              cp -f "$file" "$OUT/$file"
+            fi
+          done
+
+          find "$OUT" -type f | sort || true
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rix-auth-logs-${{ matrix.os }}-${{ matrix.build_type }}
+          path: logs/**/*
+          if-no-files-found: ignore
